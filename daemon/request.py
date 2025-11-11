@@ -105,7 +105,7 @@ class Request():
         # --- KẾT THÚC TÁCH --
 
         # Prepare the request line from the request header
-        self.method, self.path, self.version = self.extract_request_line(request)
+        self.method, self.path, self.version = self.extract_request_line(header_part)
         print("[Request] {} path {} version {}".format(self.method, self.path, self.version))
 
         #
@@ -123,7 +123,7 @@ class Request():
             # ...
             #
 
-        self.headers = self.prepare_headers(request)
+        self.headers = self.prepare_headers(header_part)
         cookie_string = self.headers.get('cookie', '')
             #
             #  TODO: implement the cookie function here

@@ -168,7 +168,7 @@ class Response():
                 #handle_text_other(sub_type)
                 pass
         elif main_type == 'image':
-            base_dir = BASE_DIR+"static/images"
+            base_dir = BASE_DIR+"static/"
             self.headers['Content-Type']='image/{}'.format(sub_type)
         elif main_type == 'application':
             base_dir = BASE_DIR+"apps/"
