@@ -103,23 +103,97 @@ class HttpAdapter:
         resp = self.response
 
         # Handle the request
-        msg = conn.recv(1024).decode()
+        try:
+            msg = conn.recv(1024).decode()
+            if not msg: # Nếu client ngắt kết nối
+                return 
+        except Exception as e:
+            print(f"Error receiving data: {e}")
+            return
+
         req.prepare(msg, routes)
+
+        response = None # Khởi tạo response
+
+
+        # --- BẮT ĐẦU LOGIC TASK 1A & 1B (Theo PDF) ---
+
+        # Task 1A: Xử lý POST /login
+        if req.method == 'POST' and req.path == '/login':
+            form_data = {}
+            if req.body:
+                pairs = req.body.split('&')
+                for pair in pairs:
+                    if '=' in pair:
+                        key, val = pair.split('=', 1) 
+                        form_data[key] = val 
+            
+            username = form_data.get('username')
+            password = form_data.get('password')
+
+            if username == 'admin' and password == 'password':
+                # Hợp lệ: trả về index.html và set cookie
+                print("[HttpAdapter] Login successful for admin")
+                req.path = '/index.html' 
+                resp.set_cookie = 'auth=true; Path=/' 
+                response = resp.build_response(req)
+            else:
+                # Không hợp lệ: trả về 401
+                print(f"[HttpAdapter] Login failed for user: {username}")
+                response = resp.build_unauthorized()
+        
+        # Task 1B: Xử lý GET (kiểm tra cookie)
+        elif req.method == 'GET':
+            # Tài nguyên CÔNG KHAI (không cần check cookie)
+            # (Trang login.html phải công khai)
+            if req.path == '/login.html':
+                print(f"[HttpAdapter] Serving public asset: {req.path}")
+                response = resp.build_response(req)
+            
+            # Tài nguyên BẢO VỆ (cần check cookie)
+            # PDF nói là "index page" (bao gồm cả css và images của nó)
+            else: # Bao gồm /index.html, /css/*, /images/*
+                if req.cookies.get('auth') == 'true':
+                    # Cookie hợp lệ: Phục vụ trang
+                    print(f"[HttpAdapter] Auth cookie valid, serving: {req.path}")
+                    response = resp.build_response(req)
+                else:
+                    # Cookie không hợp lệ: Trả về 401
+                    print(f"[HttpAdapter] Auth cookie invalid/missing, serving 401 for: {req.path}")
+                    response = resp.build_unauthorized()
+        
+        # --- KẾT THÚC LOGIC TASK 1 ---
 
         # Handle request hook
         if req.hook:
-            print("[HttpAdapter] hook in route-path METHOD {} PATH {}".format(req.hook._route_path,req.hook._route_methods))
-            req.hook(headers = "bksysnet",body = "get in touch")
+            if response is None:
+                print(f"[HttpAdapter] hook in route-path METHOD {req.hook._route_path} PATH {req.hook._route_methods}")
+                req.hook(headers = "bksysnet",body = "get in touch")
             #
             # TODO: handle for App hook here
             #
-
+            # --- BẮT ĐẦU HOÀN THÀNH TODO ---
+            # Code hook (start_sampleapp.py) không trả về gì.
+            # Chúng ta sẽ trả về 1 response 200 OK (text/plain)
+            # để báo hiệu hook đã được gọi.
+            print(f"[HttpAdapter] WeApRous hook executed for {req.path}")
+                
+            resp.status_code = 200
+            resp.reason = "OK"
+            resp.headers['Content-Type'] = 'text/plain'
+            resp._content = b"WeApRous hook executed"
+            # Phải gọi build_response_header trước
+            resp._header = resp.build_response_header(req)
+            response = resp._header + resp._content
+            # --- KẾT THÚC HOÀN THÀNH TODO ---
         # Build response
-        response = resp.build_response(req)
+        if response is None:
+            response = resp.build_response(req)
+
 
         #print(response)
         conn.sendall(response)
-        conn.close()
+        #conn.close()
 
     @property
     def extract_cookies(self, req, resp):
@@ -130,13 +204,25 @@ class HttpAdapter:
         :param resp: (Response) The res:class:`Response <Response>` object.
         :rtype: cookies - A dictionary of cookie key-value pairs.
         """
+        # cookies = {}
+        # for header in headers:
+        #     if header.startswith("Cookie:"):
+        #         cookie_str = header.split(":", 1)[1].strip()
+        #         for pair in cookie_str.split(";"):
+        #             key, value = pair.strip().split("=")
+        #             cookies[key] = value
+        # return cookies
+    
         cookies = {}
-        for header in headers:
-            if header.startswith("Cookie:"):
-                cookie_str = header.split(":", 1)[1].strip()
-                for pair in cookie_str.split(";"):
+        headers = req.headers # Sửa: Lấy từ req.headers (là 1 dict)
+        cookie_str = headers.get("cookie", "") # Dùng .get()
+        if cookie_str:
+            for pair in cookie_str.split(";"):
+                try:
                     key, value = pair.strip().split("=")
                     cookies[key] = value
+                except ValueError:
+                    pass # Bỏ qua cookie lỗi
         return cookies
 
     def build_response(self, req, resp):
@@ -149,9 +235,9 @@ class HttpAdapter:
         response = Response()
 
         # Set encoding.
-        response.encoding = get_encoding_from_headers(response.headers)
+        #response.encoding = get_encoding_from_headers(response.headers)
         response.raw = resp
-        response.reason = response.raw.reason
+        #response.reason = response.raw.reason
 
         if isinstance(req.url, bytes):
             response.url = req.url.decode("utf-8")
@@ -159,7 +245,7 @@ class HttpAdapter:
             response.url = req.url
 
         # Add new cookies from the server.
-        response.cookies = extract_cookies(req)
+        response.cookies = self.extract_cookies(req, resp)
 
         # Give the Response some context.
         response.request = req

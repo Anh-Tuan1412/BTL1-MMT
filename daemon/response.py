@@ -118,6 +118,9 @@ class Response():
         #: is a response.
         self.request = None
 
+        # Thêm thuộc tính để hỗ trợ Set-Cookie (Task 1A)
+        self.set_cookie = None
+
 
     def get_mime_type(self, path):
         """
@@ -132,6 +135,9 @@ class Response():
             mime_type, _ = mimetypes.guess_type(path)
         except Exception:
             return 'application/octet-stream'
+        if path.endswith('.ico'):
+            return 'image/x-icon'
+            
         return mime_type or 'application/octet-stream'
 
 
@@ -159,9 +165,10 @@ class Response():
             elif sub_type == 'html':
                 base_dir = BASE_DIR+"www/"
             else:
-                handle_text_other(sub_type)
+                #handle_text_other(sub_type)
+                pass
         elif main_type == 'image':
-            base_dir = BASE_DIR+"static/"
+            base_dir = BASE_DIR+"static/images"
             self.headers['Content-Type']='image/{}'.format(sub_type)
         elif main_type == 'application':
             base_dir = BASE_DIR+"apps/"
@@ -179,7 +186,7 @@ class Response():
         #        ...
         #
         else:
-            raise ValueError("Invalid MEME type: main_type={} sub_type={}".format(main_type,sub_type))
+            raise ValueError("Invalid MEME type: main_type={main_type} sub_type={sub_type}")
 
         return base_dir
 
@@ -193,15 +200,38 @@ class Response():
 
         :rtype tuple: (int, bytes) representing content length and content data.
         """
+        # Ngăn chặn Path Traversal
+        if path.startswith('/'):
+            path = path.lstrip('/')
+
 
         filepath = os.path.join(base_dir, path.lstrip('/'))
-
-        print("[Response] serving the object at location {}".format(filepath))
+        if not os.path.abspath(filepath).startswith(os.path.abspath(base_dir)):
+            print(f"[Response] Path traversal attempt blocked: {path}")
+            return 0, b""
+        
+        print(f"[Response] serving the object at location {filepath}")
             #
             #  TODO: implement the step of fetch the object file
             #        store in the return value of content
             #
-        return len(content), content
+        # --- BẮT ĐẦU HOÀN THÀNH TODO ---
+        content = b""
+        content_length = 0
+        try:
+            # Mở file ở chế độ 'rb' (read binary)
+            with open(filepath, 'rb') as f:
+                content = f.read()
+                content_length = len(content)
+        except FileNotFoundError:
+            print(f"[Response] File not found: {filepath}")
+            return 0, b""
+        except IOError as e:
+            print(f"[Response] Error reading file {filepath}: {e}")
+            return 0, b""
+            
+        return content_length, content
+        # --- KẾT THÚC HOÀN THÀNH TODO ---
 
 
     def build_response_header(self, request):
@@ -236,12 +266,29 @@ class Response():
                 "Warning": "199 Miscellaneous warning",
                 "User-Agent": "{}".format(reqhdr.get("User-Agent", "Chrome/123.0.0.0")),
             }
+        # --- THÊM LOGIC SET-COOKIE CHO TASK 1A ---
+        if self.set_cookie:
+            headers["Set-Cookie"] = self.set_cookie
+            print(f"[Response] Setting cookie: {self.set_cookie}")
+        # --- KẾT THÚC THÊM LOGIC ---
 
         # Header text alignment
             #
             #  TODO: implement the header building to create formated
             #        header from the provied headers
             #
+            # --- BẮT ĐẦU HOÀN THÀNH TODO ---
+        # Tạo dòng Status
+        status_line = f"HTTP/1.1 {self.status_code} {self.reason}\r\n"
+        
+        # Tạo các dòng Header
+        header_lines = []
+        for key, value in headers.items():
+            header_lines.append(f"{key}: {value}")
+        
+        # Kết hợp thành 1 chuỗi header, kết thúc bằng 2 cặp \r\n
+        fmt_header = status_line + "\r\n".join(header_lines) + "\r\n\r\n"
+        # --- KẾT THÚC HOÀN THÀNH TODO ---
         #
         # TODO prepare the request authentication
         #
@@ -267,6 +314,21 @@ class Response():
                 "404 Not Found"
             ).encode('utf-8')
 
+    # --- THÊM HÀM MỚI CHO TASK 1A & 1B ---
+    def build_unauthorized(self):
+        """
+        Constructs a standard 401 Unauthorized HTTP response.
+        """
+        body = "401 Unauthorized"
+        return (
+            f"HTTP/1.1 401 Unauthorized\r\n"
+            f"Content-Type: text/html\r\n"
+            f"Content-Length: {len(body)}\r\n"
+            f"Connection: close\r\n"
+            f"\r\n"
+            f"{body}"
+        ).encode('utf-8')
+    # --- KẾT THÚC THÊM HÀM ---
 
     def build_response(self, request):
         """
@@ -279,8 +341,11 @@ class Response():
 
         path = request.path
 
+        if path is None:
+             return self.build_notfound()
+        
         mime_type = self.get_mime_type(path)
-        print("[Response] {} path {} mime_type {}".format(request.method, request.path, mime_type))
+        print(f"[Response] {request.method} path {path} mime_type {mime_type}")
 
         base_dir = ""
 
@@ -292,10 +357,20 @@ class Response():
         #
         # TODO: add support objects
         #
+        elif mime_type.startswith('image/'):
+            base_dir = self.prepare_content_type(mime_type = mime_type)
         else:
             return self.build_notfound()
 
         c_len, self._content = self.build_content(path, base_dir)
+
+        if c_len == 0 and self._content == b"":
+             print(f"[Response] File not found, building 404: {path}")
+             return self.build_notfound()
+        
+        # Nếu file OK, gán 200 OK
+        self.status_code = 200
+        self.reason = "OK"
         self._header = self.build_response_header(request)
 
         return self._header + self._content

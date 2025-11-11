@@ -75,7 +75,7 @@ class Request():
             if path == '/':
                 path = '/index.html'
         except Exception:
-            return None, None
+            return None, None, None
 
         return method, path, version
              
@@ -91,6 +91,18 @@ class Request():
 
     def prepare(self, request, routes=None):
         """Prepares the entire request with the given parameters."""
+
+        # --- TÁCH HEADER VÀ BODY (Cần thiết cho Task 1A) ---
+        header_part = request
+        body_part = ""
+        if '\r\n\r\n' in request:
+            parts = request.split('\r\n\r\n', 1)
+            header_part = parts[0]
+            if len(parts) > 1:
+                body_part = parts[1]
+        
+        self.body = body_part
+        # --- KẾT THÚC TÁCH --
 
         # Prepare the request line from the request header
         self.method, self.path, self.version = self.extract_request_line(request)
@@ -112,11 +124,22 @@ class Request():
             #
 
         self.headers = self.prepare_headers(request)
-        cookies = self.headers.get('cookie', '')
+        cookie_string = self.headers.get('cookie', '')
             #
             #  TODO: implement the cookie function here
             #        by parsing the header            #
-
+        self.cookies = {} # Đảm bảo self.cookies là dict
+        if cookie_string:
+            pairs = cookie_string.split(';')
+            for pair in pairs:
+                pair = pair.strip()
+                if '=' in pair:
+                    try:
+                        key, val = pair.split('=', 1)
+                        self.cookies[key.strip()] = val.strip()
+                    except ValueError:
+                        pass # Bỏ qua cookie bị lỗi
+        # --- KẾT THÚC HOÀN THÀNH TODO ---
         return
 
     def prepare_body(self, data, files, json=None):
