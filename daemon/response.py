@@ -155,24 +155,22 @@ class Response():
         
         base_dir = ""
 
-        # Processing mime_type based on main_type and sub_type
         main_type, sub_type = mime_type.split('/', 1)
         print("[Response] processing MIME main_type={} sub_type={}".format(main_type,sub_type))
         if main_type == 'text':
             self.headers['Content-Type']='text/{}'.format(sub_type)
-            if sub_type == 'plain' or sub_type == 'css':
-                base_dir = BASE_DIR+"static/"
+            if sub_type in ('plain', 'css', 'javascript', 'csv', 'xml'):
+                base_dir = os.path.join(BASE_DIR, "static/")
             elif sub_type == 'html':
-                base_dir = BASE_DIR+"www/"
+                base_dir = os.path.join(BASE_DIR, "www/")
             else:
                 #handle_text_other(sub_type)
-                pass
+                #pass
+                base_dir = os.path.join(BASE_DIR, "static/")
+
         elif main_type == 'image':
-            base_dir = BASE_DIR+"static/"
+            base_dir = os.path.join(BASE_DIR, "static/")
             self.headers['Content-Type']='image/{}'.format(sub_type)
-        elif main_type == 'application':
-            base_dir = BASE_DIR+"apps/"
-            self.headers['Content-Type']='application/{}'.format(sub_type)
         #
         #  TODO: process other mime_type
         #        application/xml       
@@ -185,9 +183,22 @@ class Response():
         #        video/mpeg
         #        ...
         #
+        elif main_type in ('audio', 'video'):
+            self.headers['Content-Type'] = f"{main_type}/{sub_type}"
+            base_dir = os.path.join(BASE_DIR, "static/")
+        elif main_type == 'application':
+            self.headers['Content-Type'] = f"application/{sub_type}"
+            if sub_type in ('json', 'xml', 'zip', 'pdf'):
+                base_dir = os.path.join(BASE_DIR, "static/")
+            elif sub_type in ('octet-stream', 'x-www-form-urlencoded'):
+                base_dir = os.path.join(BASE_DIR, "static/")
+            else:
+                base_dir = os.path.join(BASE_DIR, "apps/")
         else:
             raise ValueError("Invalid MEME type: main_type={main_type} sub_type={sub_type}")
 
+        if not base_dir.endswith('/'):
+            base_dir += '/'
         return base_dir
 
 
@@ -328,6 +339,30 @@ class Response():
             f"\r\n"
             f"{body}"
         ).encode('utf-8')
+    
+
+    def build_login_success(self):
+        mime_type = self.get_mime_type("index.html")
+        base_dir = self.prepare_content_type(mime_type)
+        filepath = os.path.join(base_dir, "index.html")
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                body = f.read()
+        except FileNotFoundError:
+            body = "<html><body><h1>index.html not found</h1></body></html>"
+            print(f"[Response] build_login_success: File not found at {filepath}")
+        content_bytes = body.encode("utf-8")
+        content_length = len(content_bytes)
+
+        return (
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/html\r\n"
+            f"Content-Length: {content_length}\r\n"
+            "Set-Cookie: auth=true; Path=/\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+            f"{body}"
+        ).encode("utf-8")
     # --- KẾT THÚC THÊM HÀM ---
 
     def build_response(self, request):

@@ -134,11 +134,14 @@ class HttpAdapter:
             if username == 'admin' and password == 'password':
                 # Hợp lệ: trả về index.html và set cookie
                 print("[HttpAdapter] Login successful for admin")
-                req.path = '/index.html' 
+                #req.path = '/index.html' 
                 resp.set_cookie = 'auth=true; Path=/' 
-                response = resp.build_response(req)
+                response = resp.build_login_success()
             else:
-                # Không hợp lệ: trả về 401
+                # Không hợp lệ: trả về 401, set lại cookie nếu trc đó đã có
+                
+                resp.set_cookie = 'auth=false; Path=/'
+                print(f"check cookie = ", resp.set_cookie)
                 print(f"[HttpAdapter] Login failed for user: {username}")
                 response = resp.build_unauthorized()
         
@@ -165,10 +168,10 @@ class HttpAdapter:
         # --- KẾT THÚC LOGIC TASK 1 ---
 
         # Handle request hook
-        if req.hook:
-            if response is None:
-                print(f"[HttpAdapter] hook in route-path METHOD {req.hook._route_path} PATH {req.hook._route_methods}")
-                req.hook(headers = "bksysnet",body = "get in touch")
+        if req.hook and response is None:
+            #if response is None:
+            print(f"[HttpAdapter] hook in route-path METHOD {req.hook._route_path} PATH {req.hook._route_methods}")
+            #req.hook(headers = "bksysnet",body = "get in touch")
             #
             # TODO: handle for App hook here
             #
@@ -176,15 +179,23 @@ class HttpAdapter:
             # Code hook (start_sampleapp.py) không trả về gì.
             # Chúng ta sẽ trả về 1 response 200 OK (text/plain)
             # để báo hiệu hook đã được gọi.
-            print(f"[HttpAdapter] WeApRous hook executed for {req.path}")
+            handler_result_json_str = req.hook(headers=req.headers, body=req.body) 
+            
+            #Ktra nếu handler trả về 1 chuỗi JSON valid
+            if isinstance(handler_result_json_str, str):
+                resp.prepare_content_type(mime_type='application/json')
+                resp.status_code = 200
+                resp.reason = "OK"
+                resp._content = handler_result_json_str.encode('utf-8') 
                 
-            resp.status_code = 200
-            resp.reason = "OK"
-            resp.headers['Content-Type'] = 'text/plain'
-            resp._content = b"WeApRous hook executed"
-            # Phải gọi build_response_header trước
-            resp._header = resp.build_response_header(req)
-            response = resp._header + resp._content
+                print(f"[HttpAdapter] Serving handler result (JSON) for {req.path}")
+
+                resp._header = resp.build_response_header(req)
+                response = resp._header + resp._content
+                
+            else:
+                print(f"[HttpAdapter] ERROR: Handler for {req.path} returned non-string/None type. Serving 500.")
+                response = resp.build_internal_error()
             # --- KẾT THÚC HOÀN THÀNH TODO ---
         # Build response
         if response is None:

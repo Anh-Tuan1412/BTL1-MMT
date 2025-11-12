@@ -72,7 +72,7 @@ def peer_reaper():
             with channels_lock:
                 for channel_name, info in channels_db.items():
                     # Lọc ra danh sách thành viên mới (chỉ giữ lại những ai KHÔNG CÓ trong dead_peers)
-                    live_members = [member for member in info["members"] if member not in dead_peers_usernAMES]
+                    live_members = [member for member in info["members"] if member not in dead_peers_usernames]
                     channels_db[channel_name]["members"] = live_members
             
             print(f"[Reaper] Đã xóa các peer (timeout) khỏi tất cả các kênh.")
@@ -90,6 +90,7 @@ def register_peer(headers, body):
     
     Body: {"username": "user_a", "ip": "192.168.1.10", "port": 9001}
     """
+    print(f"[DEBUG TRACKER] Handler register_peer called. Raw body: {body[:50]}...")
     try:
         data = json.loads(body)
         username = data.get('username')
@@ -111,7 +112,8 @@ def register_peer(headers, body):
             else:
                 print(f"[Tracker] Peer mới đăng ký: {username}")
             peers_db[username] = peer_info
-            
+        
+        print(f"[DEBUG] message: Peer {username} đã được đăng ký.")
         return json.dumps({
             "status": "success",
             "message": f"Peer {username} đã được đăng ký."
@@ -257,6 +259,8 @@ def get_peers_in_channel(headers, body):
         
     except Exception as e:
         return json.dumps({"status": "error", "message": f"Lỗi máy chủ: {e}"})
+    
+
 
 # ----- KHỞI CHẠY MÁY CHỦ -----
 
@@ -291,10 +295,11 @@ if __name__ == "__main__":
     port = args.server_port
 
     # Tạo kênh 'general' mặc định khi khởi động
-    channels_db["general"] = {"owner": "system", "members": []}
+    channels_db["#general"] = {"owner": "system", "members": []}
     print("[Tracker] Đã tạo kênh mặc định '#general'.")
 
     # Chuẩn bị địa chỉ và khởi chạy máy chủ
     print(f"[Tracker] Khởi chạy máy chủ Tracker NÂNG CAO tại {ip}:{port}...")
+    print(f"[DEBUG] Tracker routes: {list(app.routes.keys())}")
     app.prepare_address(ip, port)
     app.run()

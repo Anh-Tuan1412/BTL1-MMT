@@ -139,7 +139,7 @@ class Request():
                         self.cookies[key.strip()] = val.strip()
                     except ValueError:
                         pass # Bỏ qua cookie bị lỗi
-        # --- KẾT THÚC HOÀN THÀNH TODO ---
+        # --- KẾT THÚC HOÀN THÀNH TODO -
         return
 
     def prepare_body(self, data, files, json=None):
