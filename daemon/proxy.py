@@ -199,6 +199,14 @@ def run_proxy(ip, port, routes):
             #        using multi-thread programming with the
             #        provided handle_client routine
             #
+            print(f"[Proxy] Nhận kết nối mới từ {addr}")
+            client_thread = threading.Thread(
+                target=handle_client,
+                # Chuyển IP (đã vá) và Routes (đã vá) vào thread
+                args=(ip, port, conn, addr, routes), 
+                daemon=True # Tự tắt thread khi chương trình chính tắt
+                )
+            client_thread.start()
     except socket.error as e:
       print("Socket error: {}".format(e))
 

@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+
+<head>
+    <title>P2P Chat</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="css/styles.css" />
+</head>
+
+<body>
+    <h1>P2P Chat App</h1>
+    <div style="display: flex;">
+
+        <div style="width: 200px; border-right: 1px solid black;">
+            <h3>Online Users</h3>
+            <ul id="user-list"></ul>
+        </div>
+
+        <div style="flex: 1; padding-left: 10px;">
+            <div id="chat-box" style="height: 400px; border: 1px solid #ccc; overflow-y: scroll; padding: 5px;">
+            </div>
+            <input type="text" id="message-input" style="width: 80%;">
+            <button id="send-btn">Send Broadcast</button>
+        </div>
+    </div>
+
+    <script src="/static/js/chat_client.js"></script>
+</body>
+
+</html>
