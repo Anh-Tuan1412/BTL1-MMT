@@ -173,47 +173,34 @@ class HttpAdapter:
             # TODO: handle for App hook here
             #
             # --- BẮT ĐẦU HOÀN THÀNH TODO ---
-            # Code hook (start_sampleapp.py) không trả về gì.
-            # Chúng ta sẽ trả về 1 response 200 OK (text/plain)
-            # để báo hiệu hook đã được gọi.
-            # print(f"[HttpAdapter] WeApRous hook executed for {req.path}")
-                
-            # resp.status_code = 200
-            # resp.reason = "OK"
-            # resp.headers['Content-Type'] = 'text/plain'
-            # resp._content = b"WeApRous hook executed"
-            # # Phải gọi build_response_header trước
-            # resp._header = resp.build_response_header(req)
-            # response = resp._header + resp._content
-            # # --- KẾT THÚC HOÀN THÀNH TODO ---
             try:
-                # Gọi hàm route và lấy kết quả trả về
-                # Giả định chúng ta sẽ truyền `req` và `resp` vào hàm
+                # Gọi hàm route, truyền CẢ request và response
                 hook_data = req.hook(request=req, response=resp) 
                     
-                # Build response từ kết quả đó
                 import json
-                # Chuyển dict thành chuỗi JSON
-                json_body = json.dumps(hook_data) 
+                # Chuyển dict (kết quả) thành chuỗi JSON
+                json_body = json.dumps(hook_data).encode('utf-8') 
                     
                 resp.status_code = 200
                 resp.reason = "OK"
-                resp.headers['Content-Type'] = 'application/json'
-                resp._content = json_body.encode('utf-8') # Nội dung là JSON
+                resp.headers['Content-Type'] = 'application/json' # Rất quan trọng
+                resp._content = json_body
                     
-                # Phải gọi build_response_header trước
                 resp._header = resp.build_response_header(req)
                 response = resp._header + resp._content
                 
             except Exception as e:
                 print(f"[HttpAdapter] Error executing hook: {e}")
                 # Xây dựng response lỗi 500
+                import json # Cần import json ở đây nữa
                 resp.status_code = 500
                 resp.reason = "Internal Server Error"
-                resp.headers['Content-Type'] = 'text/plain'
-                resp._content = b"Server error in hook"
+                resp.headers['Content-Type'] = 'application/json'
+                error_payload = json.dumps({"status": "error", "message": str(e)})
+                resp._content = error_payload.encode('utf-8')
                 resp._header = resp.build_response_header(req)
                 response = resp._header + resp._content
+            # --- KẾT THÚC SỬA ---
         # Build response
         if response is None:
             response = resp.build_response(req)
