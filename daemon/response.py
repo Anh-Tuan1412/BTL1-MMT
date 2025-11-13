@@ -215,10 +215,35 @@ class Response():
         if path.startswith('/'):
             path = path.lstrip('/')
 
-
-        filepath = os.path.join(base_dir, path.lstrip('/'))
-        if not os.path.abspath(filepath).startswith(os.path.abspath(base_dir)):
-            print(f"[Response] Path traversal attempt blocked: {path}")
+        # Xử lý path /static/* đúng cách
+        # Nếu path đã bắt đầu bằng 'static/', thì dùng trực tiếp từ thư mục gốc
+        if path.startswith('static/'):
+            # Path đã có 'static/', dùng trực tiếp từ thư mục hiện tại
+            # BASE_DIR có thể rỗng, nên dùng path trực tiếp
+            if BASE_DIR:
+                filepath = os.path.join(BASE_DIR, path)
+            else:
+                # Nếu BASE_DIR rỗng, dùng path trực tiếp (từ thư mục chạy script)
+                filepath = path
+        else:
+            # Path không có 'static/', dùng base_dir như bình thường
+            if BASE_DIR:
+                filepath = os.path.join(base_dir, path.lstrip('/'))
+            else:
+                filepath = os.path.join(base_dir.lstrip('/'), path.lstrip('/'))
+        
+        # Kiểm tra path traversal
+        abs_filepath = os.path.abspath(filepath)
+        # Nếu BASE_DIR rỗng, dùng thư mục hiện tại làm base
+        if BASE_DIR:
+            abs_base = os.path.abspath(BASE_DIR)
+        else:
+            # Dùng thư mục hiện tại (nơi chạy script) làm base
+            abs_base = os.path.abspath(os.getcwd())
+        
+        # Kiểm tra path traversal - filepath phải nằm trong base directory
+        if not abs_filepath.startswith(abs_base):
+            print(f"[Response] Path traversal attempt blocked: {path} (filepath: {abs_filepath}, base: {abs_base})")
             return 0, b""
         
         print(f"[Response] serving the object at location {filepath}")
@@ -342,26 +367,14 @@ class Response():
     
 
     def build_login_success(self):
-        mime_type = self.get_mime_type("index.html")
-        base_dir = self.prepare_content_type(mime_type)
-        filepath = os.path.join(base_dir, "index.html")
-        try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                body = f.read()
-        except FileNotFoundError:
-            body = "<html><body><h1>index.html not found</h1></body></html>"
-            print(f"[Response] build_login_success: File not found at {filepath}")
-        content_bytes = body.encode("utf-8")
-        content_length = len(content_bytes)
-
+        # Sử dụng redirect thay vì trả về HTML trực tiếp
+        # Điều này đảm bảo cookie được set và URL đúng
         return (
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/html\r\n"
-            f"Content-Length: {content_length}\r\n"
-            "Set-Cookie: auth=true; Path=/\r\n"
+            "HTTP/1.1 302 Found\r\n"
+            "Location: /index.html\r\n"
+            "Set-Cookie: auth=true; Path=/; SameSite=Lax\r\n"
             "Connection: close\r\n"
             "\r\n"
-            f"{body}"
         ).encode("utf-8")
     # --- KẾT THÚC THÊM HÀM ---
 

@@ -1,8 +1,90 @@
-<html><body>
-<h1>Login</h1>
-<form method="POST" action="/login">
-  Username: <input name="username" type="text"><br>
-  Password: <input name="password" type="password"><br>
-  <input type="submit" value="Login">
-</form>
-</body></html>
+<!doctype html>
+<html lang="vi">
+<head>
+    <title>Login - WeApRous</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/static/css/styles.css" />
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .login-container {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 400px;
+        }
+        .login-container h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 1.5rem;
+        }
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        label {
+            font-weight: 500;
+            color: #555;
+        }
+        input[type="text"],
+        input[type="password"] {
+            padding: 0.75rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 5px;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+        input[type="text"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        input[type="submit"] {
+            padding: 0.75rem;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        input[type="submit"]:hover {
+            background: #5568d3;
+        }
+        #error-message {
+            color: #f44336;
+            margin-top: 0.5rem;
+            min-height: 1.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <h1>🔐 Đăng Nhập</h1>
+        <form method="POST" action="/login">
+            <div>
+                <label for="username">Username:</label>
+                <input type="text" name="username" id="username" required autocomplete="username" />
+            </div>
+            <div>
+                <label for="password">Password:</label>
+                <input type="password" name="password" id="password" required autocomplete="current-password" />
+            </div>
+            <input type="submit" value="Login" />
+            <div id="error-message"></div>
+        </form>
+    </div>
+    <script src="/static/js/login.js"></script>
+</body>
+</html>

@@ -38,6 +38,12 @@ peers_lock = threading.Lock()
 channels_db = {}
 channels_lock = threading.Lock()
 
+# 3. Cơ sở dữ liệu Signals (WebRTC signaling)
+#    - Lưu trữ các tín hiệu WebRTC (offer, answer, ICE candidates) chờ xử lý
+#    - { "username": [{"from": "user_a", "signal": {...}}, ...] }
+signals_db = {}
+signals_lock = threading.Lock()
+
 # ----------------------------------------------------
 
 def peer_reaper():
@@ -259,7 +265,63 @@ def get_peers_in_channel(headers, body):
         
     except Exception as e:
         return json.dumps({"status": "error", "message": f"Lỗi máy chủ: {e}"})
+
+@app.route('/signal', methods=['POST'])
+def send_signal(headers, body):
+    """
+    API Gửi tín hiệu WebRTC (offer, answer, ICE candidate) đến một peer.
     
+    Body: {"to": "user_b", "from": "user_a", "signal": {...}}
+    """
+    try:
+        data = json.loads(body)
+        to_username = data.get('to')
+        from_username = data.get('from')
+        signal = data.get('signal')
+        
+        if not to_username or not from_username or not signal:
+            return json.dumps({"status": "error", "message": "Thiếu thông tin: to, from, signal"})
+        
+        with signals_lock:
+            if to_username not in signals_db:
+                signals_db[to_username] = []
+            signals_db[to_username].append({
+                "from": from_username,
+                "signal": signal
+            })
+        
+        print(f"[Tracker] Signal từ {from_username} đến {to_username}")
+        return json.dumps({"status": "success", "message": "Signal đã được gửi"})
+        
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"Lỗi máy chủ: {e}"})
+
+@app.route('/get-signals', methods=['POST'])
+def get_signals(headers, body):
+    """
+    API Lấy tất cả các tín hiệu WebRTC đang chờ xử lý cho một peer.
+    Sau khi lấy, xóa các tín hiệu đó khỏi database.
+    
+    Body: {"username": "user_a"}
+    """
+    try:
+        data = json.loads(body)
+        username = data.get('username')
+        
+        if not username:
+            return json.dumps({"status": "error", "message": "Thiếu username"})
+        
+        with signals_lock:
+            signals = signals_db.get(username, [])
+            signals_db[username] = []  # Xóa sau khi lấy
+        
+        return json.dumps({
+            "status": "success",
+            "signals": signals
+        })
+        
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"Lỗi máy chủ: {e}"})
 
 
 # ----- KHỞI CHẠY MÁY CHỦ -----

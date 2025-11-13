@@ -77,13 +77,27 @@ document.addEventListener("DOMContentLoaded", () => {
             }),
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
-            }
+            },
+            credentials: 'include', // QUAN TRỌNG: Cho phép lưu cookie từ server
+            redirect: 'follow' // Tự động follow redirect và giữ cookie
         });
 
-        if (response.status === 200) {
+        if (response.status === 200 || response.status === 302) {
+            // 200: Server trả về HTML trực tiếp
+            // 302: Server redirect (browser sẽ tự động follow)
             errorMessage.textContent = "Login successful! Redirecting...";
             localStorage.setItem("username", username);
-            window.location.href = '/index.html'; // Chuyển hướng thành công
+            
+            // Nếu là 302, browser sẽ tự động redirect
+            // Nếu là 200, chúng ta tự redirect
+            if (response.status === 200) {
+                window.location.href = '/index.html';
+            } else {
+                // 302 redirect - browser sẽ tự động follow
+                // Nhưng để chắc chắn, chúng ta cũng redirect
+                const location = response.headers.get('Location') || '/index.html';
+                window.location.href = location;
+            }
 
         } else if (response.status === 401) {
             errorMessage.textContent = "Invalid username or password.";

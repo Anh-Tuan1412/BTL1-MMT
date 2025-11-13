@@ -1,26 +1,87 @@
 <!doctype html>
-<html>
-
+<html lang="vi">
 <head>
     <title>bksysnet@hcmut welcome</title>
     <meta charset="utf-8" />
     <meta http-equiv="Content-type" content="text/html; charset=utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="/static/css/styles.css" />
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+        p {
+            color: #666;
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        img {
+            display: block;
+            margin: 2rem auto;
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+        }
+        #navigation-area {
+            text-align: center;
+            padding: 2rem;
+        }
+        #navigation-area button {
+            padding: 1rem 2rem;
+            margin: 0.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        #navigation-area button.btn-chat {
+            background: #667eea;
+            color: white;
+        }
+        #navigation-area button.btn-chat:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        #navigation-area button.btn-login {
+            background: #4caf50;
+            color: white;
+        }
+        #navigation-area button.btn-login:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4);
+        }
+    </style>
 </head>
-
 <body>
-    <div>
+    <div class="container">
         <h1>bksysnet@hcmut Domain</h1>
         <p>This domain is for use in illustrative examples in documents.</p>
-        <img src="images/welcome.png" alt="bksysnet at HCMUT" width="500" height="600">
-    </div>
-
-    <div id="navigation-area" style="text-align: center; padding: 20px;">
+        <img src="/static/images/welcome.png" alt="bksysnet at HCMUT" width="500" height="600">
+        
+        <div id="navigation-area">
+            <!-- Buttons will be inserted here by index_logic.js -->
+        </div>
     </div>
 
     <script src="/static/js/index_logic.js"></script>
-
 </body>
-
 </html>

@@ -148,14 +148,16 @@ class HttpAdapter:
         # Task 1B: Xử lý GET (kiểm tra cookie)
         elif req.method == 'GET':
             # Tài nguyên CÔNG KHAI (không cần check cookie)
-            # (Trang login.html phải công khai)
-            if req.path == '/login.html':
+            # - login.html: công khai để người dùng có thể đăng nhập
+            # - index.html: công khai (JavaScript sẽ tự kiểm tra cookie và hiển thị nút phù hợp)
+            # - /static/*: công khai (CSS, JS, images cần thiết để hiển thị trang)
+            if req.path == '/login.html' or req.path == '/index.html' or req.path.startswith('/static/'):
                 print(f"[HttpAdapter] Serving public asset: {req.path}")
                 response = resp.build_response(req)
             
             # Tài nguyên BẢO VỆ (cần check cookie)
-            # PDF nói là "index page" (bao gồm cả css và images của nó)
-            else: # Bao gồm /index.html, /css/*, /images/*
+            # Các trang khác như /chat.html cần cookie để truy cập
+            else:
                 if req.cookies.get('auth') == 'true':
                     # Cookie hợp lệ: Phục vụ trang
                     print(f"[HttpAdapter] Auth cookie valid, serving: {req.path}")
