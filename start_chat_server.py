@@ -58,7 +58,9 @@ def join_channel(request, response):
         if username not in db["peers"]:
             return {"status": "error", "message": "Peer chưa đăng ký"}
         if channel not in db["channels"]:
-            return {"status": "error", "message": "Kênh không tồn tại"}
+            db["channels"][channel] = {"description": f"Kênh {channel} được tạo tự động"}
+            print(f"[ChatServer] Kênh mới được tạo: {channel}")
+
 
         if channel not in db["peers"][username]["channels"]:
             db["peers"][username]["channels"].append(channel)
