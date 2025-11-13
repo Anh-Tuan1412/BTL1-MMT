@@ -29,20 +29,6 @@ class HttpAdapter:
     """
     A mutable :class:`HTTP adapter <HTTP adapter>` for managing client connections
     and routing requests.
-
-    The `HttpAdapter` class encapsulates the logic for receiving HTTP requests,
-    dispatching them to appropriate route handlers, and constructing responses.
-    It supports RESTful routing via hooks and integrates with :class:`Request <Request>` 
-    and :class:`Response <Response>` objects for full request lifecycle management.
-
-    Attributes:
-        ip (str): IP address of the client.
-        port (int): Port number of the client.
-        conn (socket): Active socket connection.
-        connaddr (tuple): Address of the connected client.
-        routes (dict): Mapping of route paths to handler functions.
-        request (Request): Request object for parsing incoming data.
-        response (Response): Response object for building and sending replies.
     """
 
     __attrs__ = [
@@ -58,12 +44,6 @@ class HttpAdapter:
     def __init__(self, ip, port, conn, connaddr, routes):
         """
         Initialize a new HttpAdapter instance.
-
-        :param ip (str): IP address of the client.
-        :param port (int): Port number of the client.
-        :param conn (socket): Active socket connection.
-        :param connaddr (tuple): Address of the connected client.
-        :param routes (dict): Mapping of route paths to handler functions.
         """
 
         #: IP address.
@@ -87,38 +67,61 @@ class HttpAdapter:
     def handle_client(self, conn, addr, routes):
         """
         Handle an incoming client connection.
-
-        This method reads the request from the socket, prepares the request object,
-        invokes the appropriate route handler if available, builds the response,
-        and sends it back to the client.
-
-        :param conn (socket): The client socket connection.
-        :param addr (tuple): The client's address.
-        :param routes (dict): The route mapping for dispatching requests.
         """
 
-        # Connection handler.
         self.conn = conn        
-        # Connection address.
         self.connaddr = addr
-        # Request handler
         req = self.request
-        # Response handler
         resp = self.response
 
-        # Handle the request
+        # --- SỬA LỖI ĐỌC BUFFER TCP ---
         try:
-            msg = conn.recv(1024).decode()
-            if not msg: # Nếu client ngắt kết nối
+            # 1. Đọc phần header trước (giả định header không quá 4096 bytes)
+            header_data = b""
+            while b'\r\n\r\n' not in header_data:
+                chunk = conn.recv(1024)
+                if not chunk:
+                    break
+                header_data += chunk
+            
+            if not header_data:
+                print(f"Client {addr} disconnected before sending headers.")
                 return 
+            
+            # 2. Tách header và phần body (có thể đã đọc lố)
+            parts = header_data.split(b'\r\n\r\n', 1)
+            header_text = parts[0].decode('utf-8')
+            body_bytes = parts[1] if len(parts) > 1 else b""
+
+            # 3. Phân tích header để tìm Content-Length
+            headers_dict = {}
+            for line in header_text.split('\r\n')[1:]: # Bỏ dòng đầu (POST /... HTTP/1.1)
+                if ': ' in line:
+                    key, val = line.split(': ', 1)
+                    headers_dict[key.lower()] = val
+            
+            content_length = int(headers_dict.get('content-length', 0))
+
+            # 4. Đọc phần body còn lại (nếu có)
+            while len(body_bytes) < content_length:
+                bytes_to_read = content_length - len(body_bytes)
+                chunk = conn.recv(min(bytes_to_read, 4096)) # Đọc phần còn thiếu
+                if not chunk:
+                    print(f"Client {addr} disconnected before sending full body.")
+                    break # Client ngắt kết nối
+                body_bytes += chunk
+                
+            # msg = Toàn bộ request
+            msg = header_text + '\r\n\r\n' + body_bytes.decode('utf-8')
+
         except Exception as e:
-            print(f"Error receiving data: {e}")
+            print(f"Error receiving full request data from {addr}: {e}")
             return
+        # --- KẾT THÚC SỬA LỖI ĐỌC BUFFER ---
 
         req.prepare(msg, routes)
 
         response = None # Khởi tạo response
-
 
         # --- BẮT ĐẦU LOGIC TASK 1A & 1B (Theo PDF) ---
 
@@ -136,35 +139,25 @@ class HttpAdapter:
             password = form_data.get('password')
 
             if username == 'admin' and password == 'password':
-                # Hợp lệ: trả về index.html và set cookie
                 print("[HttpAdapter] Login successful for admin")
-                # Thay vì gọi build_login_success, chúng ta sửa req.path
-                # và để nó tự chạy xuống logic build_response bên dưới
                 req.path = '/index.html' 
                 resp.set_cookie = 'auth=true; Path=/' 
                 response = resp.build_response(req) # Xây dựng response ngay
             else:
-                # Không hợp lệ: trả về 401
                 print(f"[HttpAdapter] Login failed for user: {username}")
                 response = resp.build_unauthorized()
         
         # Task 1B: Xử lý GET (kiểm tra cookie)
         elif req.method == 'GET':
-            # Tài nguyên CÔNG KHAI (không cần check cookie)
-            # (Trang login.html phải công khai)
             if req.path == '/login.html':
                 print(f"[HttpAdapter] Serving public asset: {req.path}")
                 response = resp.build_response(req)
             
-            # Tài nguyên BẢO VỆ (cần check cookie)
-            # PDF nói là "index page" (bao gồm cả css và images của nó)
             else: # Bao gồm /index.html, /css/*, /images/*
                 if req.cookies.get('auth') == 'true':
-                    # Cookie hợp lệ: Phục vụ trang
                     print(f"[HttpAdapter] Auth cookie valid, serving: {req.path}")
                     response = resp.build_response(req)
                 else:
-                    # Cookie không hợp lệ: Trả về 401
                     print(f"[HttpAdapter] Auth cookie invalid/missing, serving 401 for: {req.path}")
                     response = resp.build_unauthorized()
         
@@ -172,37 +165,34 @@ class HttpAdapter:
 
         # Handle request hook (Task 2 - WeApRous)
         if req.hook:
-            # Chỉ chạy hook nếu Task 1 không xử lý (response is None)
             if response is None: 
                 print(f"[HttpAdapter] hook in route-path METHOD {req.hook._route_path} PATH {req.hook._route_methods}")
                 
-                # --- BẮT ĐẦU HOÀN THÀNH TODO ---
-                # Code hook (start_chat_server.py) dùng signature (request, response)
-                # Code hook (start_sampleapp.py) dùng signature (headers, body)
-                # Chúng ta cần hỗ trợ cả hai, nhưng ưu tiên (request, response) nếu nó hoạt động
                 try:
-                    # Thử gọi với (request, response) cho start_chat_server.py
-                    # Cần truyền cả req và resp để hàm hook có thể truy cập
                     handler_result_dict = req.hook(request=req, response=resp)
-                except TypeError:
-                    # Nếu lỗi, thử gọi với (headers, body) cho start_sampleapp.py
-                    handler_result_dict = req.hook(headers=req.headers, body=req.body)
+                except TypeError: 
+                    try:
+                        handler_result_dict = req.hook(headers=req.headers, body=req.body)
+                    except Exception as e:
+                         print(f"[HttpAdapter] Error executing hook (headers, body): {e}")
+                         handler_result_dict = {"status": "error", "message": f"Hook execution error: {e}"}
+                         resp.status_code = 500
+                         resp.reason = "Internal Server Error"
                 except Exception as e:
-                    print(f"[HttpAdapter] Error executing hook: {e}")
+                    print(f"[HttpAdapter] Error executing hook (request, response): {e}")
                     handler_result_dict = {"status": "error", "message": f"Hook execution error: {e}"}
                     resp.status_code = 500
                     resp.reason = "Internal Server Error"
 
-                # Xử lý kết quả trả về từ hook (thường là một dict)
+                # Xử lý kết quả trả về từ hook
                 try:
-                    # Chuyển dict (kết quả) thành chuỗi JSON
                     json_body = json.dumps(handler_result_dict).encode('utf-8') 
                     
-                    if resp.status_code is None: # Nếu hook không tự set
+                    if resp.status_code is None: 
                         resp.status_code = 200
                         resp.reason = "OK"
                         
-                    resp.headers['Content-Type'] = 'application/json' # Rất quan trọng
+                    resp.headers['Content-Type'] = 'application/json' 
                     resp._content = json_body
                         
                     resp._header = resp.build_response_header(req)
@@ -217,27 +207,14 @@ class HttpAdapter:
                     resp._content = error_payload.encode('utf-8')
                     resp._header = resp.build_response_header(req)
                     response = resp._header + resp._content
-                # --- KẾT THÚC HOÀN THÀNH TODO ---
 
-        # Build response (nếu chưa có response nào được tạo)
         if response is None:
             response = resp.build_response(req)
 
-
-        #print(response)
         conn.sendall(response)
-        #conn.close()
 
     @property
     def extract_cookies(self, req, resp):
-        """
-        Build cookies from the :class:`Request <Request>` headers.
-
-        :param req:(Request) The :class:`Request <Request>` object.
-        :param resp: (Response) The res:class:`Response <Response>` object.
-        :rtype: cookies - A dictionary of cookie key-value pairs.
-        """
-    
         cookies = {}
         headers = req.headers 
         cookie_str = headers.get("cookie", "") 
@@ -247,64 +224,29 @@ class HttpAdapter:
                     key, value = pair.strip().split("=")
                     cookies[key] = value
                 except ValueError:
-                    pass # Bỏ qua cookie lỗi
+                    pass 
         return cookies
 
     def build_response(self, req, resp):
-        """Builds a :class:`Response <Response>` object 
-
-        :param req: The :class:`Request <Request>` used to generate the response.
-        :param resp: The  response object.
-        :rtype: Response
-        """
         response = Response()
-
-        # Set encoding.
-        #response.encoding = get_encoding_from_headers(response.headers)
         response.raw = resp
-        #response.reason = response.raw.reason
 
         if isinstance(req.url, bytes):
             response.url = req.url.decode("utf-8")
         else:
             response.url = req.url
 
-        # Add new cookies from the server.
         response.cookies = self.extract_cookies(req, resp)
-
-        # Give the Response some context.
         response.request = req
         response.connection = self
 
         return response
 
     def add_headers(self, request):
-        """
-        Add headers to the request.
-
-        This method is intended to be overridden by subclasses to inject
-        custom headers. It does nothing by default.
-
-        
-        :param request: :class:`Request <Request>` to add headers to.
-        """
         pass
 
     def build_proxy_headers(self, proxy):
-        """Returns a dictionary of the headers to add to any request sent
-        through a proxy. 
-
-        :class:`HttpAdapter <HttpAdapter>`.
-
-        :param proxy: The url of the proxy being used for this request.
-        :rtype: dict
-        """
         headers = {}
-        #
-        # TODO: build your authentication here
-        #       username, password =...
-        # we provide dummy auth here
-        #
         username, password = ("user1", "password")
 
         if username:
