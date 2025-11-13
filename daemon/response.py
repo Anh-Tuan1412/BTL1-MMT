@@ -392,6 +392,8 @@ class Response():
         #
         # TODO: add support objects
         #
+        elif mime_type == 'text/javascript':
+            base_dir = self.prepare_content_type(mime_type = 'text/javascript')
         elif mime_type.startswith('image/'):
             base_dir = self.prepare_content_type(mime_type = mime_type)
         else:

@@ -31,40 +31,69 @@ document.addEventListener("DOMContentLoaded", () => {
         // Chúng ta đang truy cập qua proxy, nên chỉ cần dùng đường dẫn tương đối
         const loginUrl = '/login'; // Proxy sẽ tự điều hướng
 
+        // try {
+        //     const response = await fetch(loginUrl, {
+        //         method: 'POST',
+        //         // Backend của bạn có thể cần JSON
+        //         // hoặc form-data. Giả sử là JSON.
+        //         body: JSON.stringify({
+        //             username: username,
+        //             password: password // (Backend sẽ check 'admin'/'password')
+        //         }),
+        //         headers: {
+        //             'Content-Type': 'application/json'
+        //         }
+        //     });
+
+        //     if (response.status === 200) {
+        //         // Thành công! Backend đã set cookie
+        //         errorMessage.textContent = "Login successful! Redirecting...";
+
+        //         // *** QUAN TRỌNG: Lưu username để trang chat sử dụng ***
+        //         localStorage.setItem("username", username);
+
+        //         // Chuyển hướng về trang index
+        //         window.location.href = '/index.html';
+
+        //     } else if (response.status === 401) {
+        //         // Sai credentials
+        //         errorMessage.textContent = "Invalid username or password.";
+        //     } else {
+        //         errorMessage.textContent = `Error: ${response.statusText}`;
+        //     }
+
+        // } catch (error) {
+        //     console.error("Error during login:", error);
+        //     errorMessage.textContent = "Could not connect to server.";
+        // }
+
         try {
-            const response = await fetch(loginUrl, {
-                method: 'POST',
-                // Backend của bạn có thể cần JSON
-                // hoặc form-data. Giả sử là JSON.
-                body: JSON.stringify({
-                    username: username,
-                    password: password // (Backend sẽ check 'admin'/'password')
-                }),
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if (response.status === 200) {
-                // Thành công! Backend đã set cookie
-                errorMessage.textContent = "Login successful! Redirecting...";
-
-                // *** QUAN TRỌNG: Lưu username để trang chat sử dụng ***
-                localStorage.setItem("username", username);
-
-                // Chuyển hướng về trang index
-                window.location.href = '/index.html';
-
-            } else if (response.status === 401) {
-                // Sai credentials
-                errorMessage.textContent = "Invalid username or password.";
-            } else {
-                errorMessage.textContent = `Error: ${response.statusText}`;
+        const response = await fetch(loginUrl, {
+            method: 'POST',
+            // SỬA LỖI: Gửi dạng form-data thay vì JSON
+            body: new URLSearchParams({
+                'username': username,
+                'password': password
+            }),
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
             }
+        });
 
-        } catch (error) {
-            console.error("Error during login:", error);
-            errorMessage.textContent = "Could not connect to server.";
+        if (response.status === 200) {
+            errorMessage.textContent = "Login successful! Redirecting...";
+            localStorage.setItem("username", username);
+            window.location.href = '/index.html'; // Chuyển hướng thành công
+
+        } else if (response.status === 401) {
+            errorMessage.textContent = "Invalid username or password.";
+        } else {
+            errorMessage.textContent = `Error: ${response.statusText}`;
+        }
+
+    } catch (error) {
+        console.error("Error during login:", error);
+        errorMessage.textContent = "Could not connect to server.";
         }
     }
 });

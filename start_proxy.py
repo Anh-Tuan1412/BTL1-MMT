@@ -44,7 +44,7 @@ from collections import defaultdict
 
 from daemon import create_proxy
 
-PROXY_PORT = 8080
+PROXY_PORT = 8081
 
 
 def parse_virtual_hosts(config_file):
