@@ -135,8 +135,12 @@ class Response():
             mime_type, _ = mimetypes.guess_type(path)
         except Exception:
             return 'application/octet-stream'
+            
         if path.endswith('.ico'):
             return 'image/x-icon'
+        # Thêm .js
+        if path.endswith('.js'):
+            return 'application/javascript'
             
         return mime_type or 'application/octet-stream'
 
@@ -157,36 +161,42 @@ class Response():
 
         # Processing mime_type based on main_type and sub_type
         main_type, sub_type = mime_type.split('/', 1)
-        print("[Response] processing MIME main_type={} sub_type={}".format(main_type,sub_type))
+        print(f"[Response] processing MIME main_type={main_type} sub_type={sub_type}")
+        
+        # --- BẮT ĐẦU HOÀN THÀNH TODO ---
+        
+        self.headers['Content-Type'] = mime_type # Gán Content-Type trước
+
         if main_type == 'text':
-            self.headers['Content-Type']='text/{}'.format(sub_type)
-            if sub_type == 'plain' or sub_type == 'css':
-                base_dir = BASE_DIR+"static/"
+            if sub_type in ('plain', 'css', 'javascript', 'csv', 'xml'):
+                base_dir = os.path.join(BASE_DIR, "static/")
             elif sub_type == 'html':
-                base_dir = BASE_DIR+"www/"
+                base_dir = os.path.join(BASE_DIR, "www/")
             else:
-                #handle_text_other(sub_type)
-                pass
+                base_dir = os.path.join(BASE_DIR, "static/") # Mặc định cho text
+
         elif main_type == 'image':
-            base_dir = BASE_DIR+"static/"
-            self.headers['Content-Type']='image/{}'.format(sub_type)
+            base_dir = os.path.join(BASE_DIR, "static/")
+
+        elif main_type in ('audio', 'video'):
+            base_dir = os.path.join(BASE_DIR, "static/")
+
         elif main_type == 'application':
-            base_dir = BASE_DIR+"apps/"
-            self.headers['Content-Type']='application/{}'.format(sub_type)
-        #
-        #  TODO: process other mime_type
-        #        application/xml       
-        #        application/zip
-        #        ...
-        #        text/csv
-        #        text/xml
-        #        ...
-        #        video/mp4 
-        #        video/mpeg
-        #        ...
-        #
+            if sub_type in ('javascript', 'json', 'xml', 'zip', 'pdf', 'octet-stream', 'x-www-form-urlencoded'):
+                base_dir = os.path.join(BASE_DIR, "static/")
+            else:
+                # 'application/...' không xác định có thể là 1 app
+                base_dir = os.path.join(BASE_DIR, "apps/")
+        
+        # --- KẾT THÚC HOÀN THÀNH TODO ---
+        
         else:
-            raise ValueError("Invalid MEME type: main_type={main_type} sub_type={sub_type}")
+            # Loại MIME không xác định
+            print(f"Warning: Unsupported MIME type: {mime_type}. Defaulting to static/")
+            base_dir = os.path.join(BASE_DIR, "static/")
+            
+        if not base_dir.endswith('/') and base_dir != "":
+            base_dir += '/'
 
         return base_dir
 
@@ -206,11 +216,16 @@ class Response():
 
 
         filepath = os.path.join(base_dir, path.lstrip('/'))
-        if not os.path.abspath(filepath).startswith(os.path.abspath(base_dir)):
+        
+        # Chuẩn hóa đường dẫn để kiểm tra an toàn
+        safe_base_dir = os.path.abspath(base_dir)
+        safe_filepath = os.path.abspath(filepath)
+
+        if not safe_filepath.startswith(safe_base_dir):
             print(f"[Response] Path traversal attempt blocked: {path}")
             return 0, b""
         
-        print(f"[Response] serving the object at location {filepath}")
+        print(f"[Response] serving the object at location {safe_filepath}")
             #
             #  TODO: implement the step of fetch the object file
             #        store in the return value of content
@@ -220,14 +235,14 @@ class Response():
         content_length = 0
         try:
             # Mở file ở chế độ 'rb' (read binary)
-            with open(filepath, 'rb') as f:
+            with open(safe_filepath, 'rb') as f:
                 content = f.read()
                 content_length = len(content)
         except FileNotFoundError:
-            print(f"[Response] File not found: {filepath}")
+            print(f"[Response] File not found: {safe_filepath}")
             return 0, b""
         except IOError as e:
-            print(f"[Response] Error reading file {filepath}: {e}")
+            print(f"[Response] Error reading file {safe_filepath}: {e}")
             return 0, b""
             
         return content_length, content
@@ -244,28 +259,28 @@ class Response():
         :rtypes bytes: encoded HTTP response header.
         """
         reqhdr = request.headers
-        rsphdr = self.headers
+        rsphdr = self.headers # headers của response (đã set Content-Type)
 
         #Build dynamic headers
         headers = {
-                "Accept": "{}".format(reqhdr.get("Accept", "application/json")),
-                "Accept-Language": "{}".format(reqhdr.get("Accept-Language", "en-US,en;q=0.9")),
-                "Authorization": "{}".format(reqhdr.get("Authorization", "Basic <credentials>")),
+                # "Accept": "{}".format(reqhdr.get("Accept", "application/json")),
+                # "Accept-Language": "{}".format(reqhdr.get("Accept-Language", "en-US,en;q=0.9")),
+                # "Authorization": "{}".format(reqhdr.get("Authorization", "Basic <credentials>")),
                 "Cache-Control": "no-cache",
-                "Content-Type": "{}".format(self.headers['Content-Type']),
                 "Content-Length": "{}".format(len(self._content)),
-#                "Cookie": "{}".format(reqhdr.get("Cookie", "sessionid=xyz789")), #dummy cooki
-        #
-        # TODO prepare the request authentication
-        #
-	# self.auth = ...
                 "Date": "{}".format(datetime.datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")),
-                "Max-Forward": "10",
+                # "Max-Forward": "10",
                 "Pragma": "no-cache",
-                "Proxy-Authorization": "Basic dXNlcjpwYXNz",  # example base64
-                "Warning": "199 Miscellaneous warning",
-                "User-Agent": "{}".format(reqhdr.get("User-Agent", "Chrome/123.0.0.0")),
+                # "Proxy-Authorization": "Basic dXNlcjpwYXNz",  # example base64
+                # "Warning": "199 Miscellaneous warning",
+                # "User-Agent": "{}".format(reqhdr.get("User-Agent", "Chrome/123.0.0.0")),
+                "Connection": "close" # Thêm Connection: close
             }
+            
+        # Thêm Content-Type từ self.headers (đã được set trong prepare_content_type)
+        if 'Content-Type' in self.headers:
+            headers['Content-Type'] = self.headers['Content-Type']
+        
         # --- THÊM LOGIC SET-COOKIE CHO TASK 1A ---
         if self.set_cookie:
             headers["Set-Cookie"] = self.set_cookie
@@ -289,10 +304,7 @@ class Response():
         # Kết hợp thành 1 chuỗi header, kết thúc bằng 2 cặp \r\n
         fmt_header = status_line + "\r\n".join(header_lines) + "\r\n\r\n"
         # --- KẾT THÚC HOÀN THÀNH TODO ---
-        #
-        # TODO prepare the request authentication
-        #
-	# self.auth = ...
+        
         return str(fmt_header).encode('utf-8')
 
 
@@ -302,16 +314,15 @@ class Response():
 
         :rtype bytes: Encoded 404 response.
         """
-
+        body = "404 Not Found"
         return (
-                "HTTP/1.1 404 Not Found\r\n"
-                "Accept-Ranges: bytes\r\n"
-                "Content-Type: text/html\r\n"
-                "Content-Length: 13\r\n"
-                "Cache-Control: max-age=86000\r\n"
-                "Connection: close\r\n"
-                "\r\n"
-                "404 Not Found"
+                f"HTTP/1.1 404 Not Found\r\n"
+                f"Content-Type: text/html\r\n"
+                f"Content-Length: {len(body)}\r\n"
+                f"Cache-Control: no-cache\r\n"
+                f"Connection: close\r\n"
+                f"\r\n"
+                f"{body}"
             ).encode('utf-8')
 
     # --- THÊM HÀM MỚI CHO TASK 1A & 1B ---
@@ -320,14 +331,18 @@ class Response():
         Constructs a standard 401 Unauthorized HTTP response.
         """
         body = "401 Unauthorized"
-        return (
-            f"HTTP/1.1 401 Unauthorized\r\n"
-            f"Content-Type: text/html\r\n"
-            f"Content-Length: {len(body)}\r\n"
-            f"Connection: close\r\n"
-            f"\r\n"
-            f"{body}"
-        ).encode('utf-8')
+        
+        # Chuẩn bị header
+        self.status_code = 401
+        self.reason = "Unauthorized"
+        self.headers['Content-Type'] = 'text/html'
+        self._content = body.encode('utf-8')
+        
+        # Xây dựng header (có thể bao gồm cả Set-Cookie nếu ta muốn xóa cookie cũ)
+        # Ví dụ: self.set_cookie = 'auth=; Path=/; Max-Age=0' (để xóa cookie)
+        
+        header_bytes = self.build_response_header(self.request) 
+        return header_bytes + self._content
     # --- KẾT THÚC THÊM HÀM ---
 
     def build_response(self, request):
@@ -338,7 +353,8 @@ class Response():
 
         :rtype bytes: complete HTTP response using prepared headers and content.
         """
-
+        # Gán request vào response để build_unauthorized có thể dùng
+        self.request = request
         path = request.path
 
         if path is None:
@@ -349,18 +365,14 @@ class Response():
 
         base_dir = ""
 
-        #If HTML, parse and serve embedded objects
-        if path.endswith('.html') or mime_type == 'text/html':
-            base_dir = self.prepare_content_type(mime_type = 'text/html')
-        elif mime_type == 'text/css':
-            base_dir = self.prepare_content_type(mime_type = 'text/css')
-        #
-        # TODO: add support objects
-        #
-        elif mime_type.startswith('image/'):
+        # --- SỬA LOGIC BUILD RESPONSE ---
+        try:
             base_dir = self.prepare_content_type(mime_type = mime_type)
-        else:
-            return self.build_notfound()
+        except ValueError as e:
+            print(f"Error preparing content type: {e}")
+            return self.build_notfound() # Hoặc 500
+        
+        # --- KẾT THÚC SỬA ---
 
         c_len, self._content = self.build_content(path, base_dir)
 

@@ -20,6 +20,7 @@ raw URL paths and RESTful route definitions, and integrates with
 Request and Response objects to handle client-server communication.
 """
 
+import json # Cần import json
 from .request import Request
 from .response import Response
 from .dictionary import CaseInsensitiveDict
@@ -79,6 +80,9 @@ class HttpAdapter:
         self.request = Request()
         #: Response
         self.response = Response()
+        
+        # Gán connaddr cho request để start_chat_server.py có thể lấy IP
+        self.request.connaddr = connaddr 
 
     def handle_client(self, conn, addr, routes):
         """
@@ -134,9 +138,11 @@ class HttpAdapter:
             if username == 'admin' and password == 'password':
                 # Hợp lệ: trả về index.html và set cookie
                 print("[HttpAdapter] Login successful for admin")
+                # Thay vì gọi build_login_success, chúng ta sửa req.path
+                # và để nó tự chạy xuống logic build_response bên dưới
                 req.path = '/index.html' 
                 resp.set_cookie = 'auth=true; Path=/' 
-                response = resp.build_response(req)
+                response = resp.build_response(req) # Xây dựng response ngay
             else:
                 # Không hợp lệ: trả về 401
                 print(f"[HttpAdapter] Login failed for user: {username}")
@@ -164,44 +170,56 @@ class HttpAdapter:
         
         # --- KẾT THÚC LOGIC TASK 1 ---
 
-        # Handle request hook
+        # Handle request hook (Task 2 - WeApRous)
         if req.hook:
-            if response is None:
+            # Chỉ chạy hook nếu Task 1 không xử lý (response is None)
+            if response is None: 
                 print(f"[HttpAdapter] hook in route-path METHOD {req.hook._route_path} PATH {req.hook._route_methods}")
-                req.hook(headers = "bksysnet",body = "get in touch")
-            #
-            # TODO: handle for App hook here
-            #
-            # --- BẮT ĐẦU HOÀN THÀNH TODO ---
-            try:
-                # Gọi hàm route, truyền CẢ request và response
-                hook_data = req.hook(request=req, response=resp) 
-                    
-                import json
-                # Chuyển dict (kết quả) thành chuỗi JSON
-                json_body = json.dumps(hook_data).encode('utf-8') 
-                    
-                resp.status_code = 200
-                resp.reason = "OK"
-                resp.headers['Content-Type'] = 'application/json' # Rất quan trọng
-                resp._content = json_body
-                    
-                resp._header = resp.build_response_header(req)
-                response = resp._header + resp._content
                 
-            except Exception as e:
-                print(f"[HttpAdapter] Error executing hook: {e}")
-                # Xây dựng response lỗi 500
-                import json # Cần import json ở đây nữa
-                resp.status_code = 500
-                resp.reason = "Internal Server Error"
-                resp.headers['Content-Type'] = 'application/json'
-                error_payload = json.dumps({"status": "error", "message": str(e)})
-                resp._content = error_payload.encode('utf-8')
-                resp._header = resp.build_response_header(req)
-                response = resp._header + resp._content
-            # --- KẾT THÚC SỬA ---
-        # Build response
+                # --- BẮT ĐẦU HOÀN THÀNH TODO ---
+                # Code hook (start_chat_server.py) dùng signature (request, response)
+                # Code hook (start_sampleapp.py) dùng signature (headers, body)
+                # Chúng ta cần hỗ trợ cả hai, nhưng ưu tiên (request, response) nếu nó hoạt động
+                try:
+                    # Thử gọi với (request, response) cho start_chat_server.py
+                    # Cần truyền cả req và resp để hàm hook có thể truy cập
+                    handler_result_dict = req.hook(request=req, response=resp)
+                except TypeError:
+                    # Nếu lỗi, thử gọi với (headers, body) cho start_sampleapp.py
+                    handler_result_dict = req.hook(headers=req.headers, body=req.body)
+                except Exception as e:
+                    print(f"[HttpAdapter] Error executing hook: {e}")
+                    handler_result_dict = {"status": "error", "message": f"Hook execution error: {e}"}
+                    resp.status_code = 500
+                    resp.reason = "Internal Server Error"
+
+                # Xử lý kết quả trả về từ hook (thường là một dict)
+                try:
+                    # Chuyển dict (kết quả) thành chuỗi JSON
+                    json_body = json.dumps(handler_result_dict).encode('utf-8') 
+                    
+                    if resp.status_code is None: # Nếu hook không tự set
+                        resp.status_code = 200
+                        resp.reason = "OK"
+                        
+                    resp.headers['Content-Type'] = 'application/json' # Rất quan trọng
+                    resp._content = json_body
+                        
+                    resp._header = resp.build_response_header(req)
+                    response = resp._header + resp._content
+                    
+                except Exception as e:
+                    print(f"[HttpAdapter] Error serializing hook response: {e}")
+                    resp.status_code = 500
+                    resp.reason = "Internal Server Error"
+                    resp.headers['Content-Type'] = 'application/json'
+                    error_payload = json.dumps({"status": "error", "message": str(e)})
+                    resp._content = error_payload.encode('utf-8')
+                    resp._header = resp.build_response_header(req)
+                    response = resp._header + resp._content
+                # --- KẾT THÚC HOÀN THÀNH TODO ---
+
+        # Build response (nếu chưa có response nào được tạo)
         if response is None:
             response = resp.build_response(req)
 
@@ -219,18 +237,10 @@ class HttpAdapter:
         :param resp: (Response) The res:class:`Response <Response>` object.
         :rtype: cookies - A dictionary of cookie key-value pairs.
         """
-        # cookies = {}
-        # for header in headers:
-        #     if header.startswith("Cookie:"):
-        #         cookie_str = header.split(":", 1)[1].strip()
-        #         for pair in cookie_str.split(";"):
-        #             key, value = pair.strip().split("=")
-        #             cookies[key] = value
-        # return cookies
     
         cookies = {}
-        headers = req.headers # Sửa: Lấy từ req.headers (là 1 dict)
-        cookie_str = headers.get("cookie", "") # Dùng .get()
+        headers = req.headers 
+        cookie_str = headers.get("cookie", "") 
         if cookie_str:
             for pair in cookie_str.split(";"):
                 try:
@@ -267,35 +277,6 @@ class HttpAdapter:
         response.connection = self
 
         return response
-
-    # def get_connection(self, url, proxies=None):
-        # """Returns a url connection for the given URL. 
-
-        # :param url: The URL to connect to.
-        # :param proxies: (optional) A Requests-style dictionary of proxies used on this request.
-        # :rtype: int
-        # """
-
-        # proxy = select_proxy(url, proxies)
-
-        # if proxy:
-            # proxy = prepend_scheme_if_needed(proxy, "http")
-            # proxy_url = parse_url(proxy)
-            # if not proxy_url.host:
-                # raise InvalidProxyURL(
-                    # "Please check proxy URL. It is malformed "
-                    # "and could be missing the host."
-                # )
-            # proxy_manager = self.proxy_manager_for(proxy)
-            # conn = proxy_manager.connection_from_url(url)
-        # else:
-            # # Only scheme should be lower case
-            # parsed = urlparse(url)
-            # url = parsed.geturl()
-            # conn = self.poolmanager.connection_from_url(url)
-
-        # return conn
-
 
     def add_headers(self, request):
         """

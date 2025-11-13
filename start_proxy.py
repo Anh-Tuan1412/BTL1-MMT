@@ -97,7 +97,7 @@ def parse_virtual_hosts(config_file):
             routes[host] = (proxy_map.get(host,[]), dist_policy_map)
 
     for key, value in routes.items():
-        print key, value
+        print (key, value)
     return routes
 
 

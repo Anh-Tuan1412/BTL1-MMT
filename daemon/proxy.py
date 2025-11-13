@@ -29,6 +29,7 @@ Requirement:
 """
 import socket
 import threading
+import itertools # Thêm thư viện để hỗ trợ round-robin
 from .response import *
 from .httpadapter import HttpAdapter
 from .dictionary import CaseInsensitiveDict
@@ -41,6 +42,9 @@ PROXY_PASS = {
     "app2.local": ('192.168.56.103', 9002),
 }
 
+# Biến toàn cục để lưu trữ vòng lặp round-robin cho các host
+round_robin_iterators = {}
+rr_lock = threading.Lock()
 
 def forward_request(host, port, request):
     """
@@ -88,35 +92,50 @@ def resolve_routing_policy(hostname, routes):
     :params routes (dict): dictionary mapping hostnames and location.
     """
 
-    print(hostname)
-    proxy_map, policy = routes.get(hostname,('127.0.0.1:9000','round-robin'))
-    print (proxy_map)
-    print (policy)
+    print(f"[Proxy] Resolving hostname: {hostname}")
+    # Lấy (proxy_map, policy) từ routes, nếu không thấy thì dùng default
+    proxy_map, policy = routes.get(hostname, (['127.0.0.1:9000'], 'round-robin'))
+    
+    print(f"[Proxy] Map: {proxy_map}")
+    print(f"[Proxy] Policy: {policy}")
 
-    proxy_host = ''
+    proxy_host = '127.0.0.1'
     proxy_port = '9000'
+    
+    # proxy_map có thể là 1 list (nhiều server) hoặc 1 string (1 server)
     if isinstance(proxy_map, list):
         if len(proxy_map) == 0:
-            print("[Proxy] Emtpy resolved routing of hostname {}".format(hostname))
-            print ("Empty proxy_map result")
-            # TODO: implement the error handling for non mapped host
-            #       the policy is design by team, but it can be 
-            #       basic default host in your self-defined system
-            # Use a dummy host to raise an invalid connection
+            print(f"[Proxy] Empty resolved routing for hostname {hostname}")
+            # --- BẮT ĐẦU HOÀN THÀNH TODO ---
             proxy_host = '127.0.0.1'
             proxy_port = '9000'
-        elif len(value) == 1:
-            proxy_host, proxy_port = proxy_map[0].split(":", 2)
-        #elif: # apply the policy handling 
-        #   proxy_map
-        #   policy
+            # --- KẾT THÚC HOÀN THÀNH TODO ---
+            
+        elif len(proxy_map) == 1:
+            # Chỉ có 1 server, dùng server đó
+            proxy_host, proxy_port = proxy_map[0].split(":", 1)
+            
         else:
-            # Out-of-handle mapped host
-            proxy_host = '127.0.0.1'
-            proxy_port = '9000'
+            # Có nhiều server, áp dụng policy
+            # --- BẮT ĐẦU HOÀN THÀNH TODO (round-robin) ---
+            if policy == 'round-robin':
+                with rr_lock:
+                    if hostname not in round_robin_iterators:
+                        # Tạo một vòng lặp vô hạn cho host này
+                        round_robin_iterators[hostname] = itertools.cycle(proxy_map)
+                    # Lấy server tiếp theo trong vòng lặp
+                    next_server = next(round_robin_iterators[hostname])
+                proxy_host, proxy_port = next_server.split(":", 1)
+                print(f"[Proxy] Round-robin selected: {proxy_host}:{proxy_port}")
+            else:
+                # Policy khác (hoặc mặc định), cứ lấy cái đầu tiên
+                proxy_host, proxy_port = proxy_map[0].split(":", 1)
+            # --- KẾT THÚC HOÀN THÀNH TODO ---
+            
     else:
-        print("[Proxy] resolve route of hostname {} is a singulair to".format(hostname))
-        proxy_host, proxy_port = proxy_map.split(":", 2)
+        # Trường hợp proxy_map là 1 string đơn
+        print(f"[Proxy] Resolve route for hostname {hostname} is singular")
+        proxy_host, proxy_port = proxy_map.split(":", 1)
 
     return proxy_host, proxy_port
 
@@ -139,14 +158,35 @@ def handle_client(ip, port, conn, addr, routes):
     :params routes (dict): dictionary mapping hostnames and location.
     """
 
-    request = conn.recv(1024).decode()
+    try:
+        request = conn.recv(1024).decode()
+        if not request:
+            conn.close()
+            return
+            
+    except Exception as e:
+        print(f"Error receiving from {addr}: {e}")
+        conn.close()
+        return
 
     # Extract hostname
-    for line in request.splitlines():
-        if line.lower().startswith('host:'):
-            hostname = line.split(':', 1)[1].strip()
+    hostname = ""
+    try:
+        for line in request.splitlines():
+            if line.lower().startswith('host:'):
+                hostname = line.split(':', 1)[1].strip()
+                break # Tìm thấy host rồi thì dừng
+    except IndexError:
+        print(f"[Proxy] Malformed request from {addr}, no Host header.")
+        
+    if not hostname:
+        # Nếu không có Host header, ta có thể dùng IP:Port của chính proxy
+        # (Giả định từ config file)
+        hostname = f"{ip}:{port}" 
+        print(f"[Proxy] No Host header, defaulting to proxy address: {hostname}")
+    else:
+        print(f"[Proxy] Request from {addr} for Host: {hostname}")
 
-    print("[Proxy] {} at Host: {}".format(addr, hostname))
 
     # Resolve the matching destination in routes and need conver port
     # to integer value
@@ -154,10 +194,11 @@ def handle_client(ip, port, conn, addr, routes):
     try:
         resolved_port = int(resolved_port)
     except ValueError:
-        print("Not a valid integer")
+        print(f"Not a valid integer port: {resolved_port}")
+        resolved_port = 9000 # Fallback
 
     if resolved_host:
-        print("[Proxy] Host name {} is forwarded to {}:{}".format(hostname,resolved_host, resolved_port))
+        print(f"[Proxy] Host {hostname} is forwarded to {resolved_host}:{resolved_port}")
         response = forward_request(resolved_host, resolved_port, request)        
     else:
         response = (
@@ -168,8 +209,13 @@ def handle_client(ip, port, conn, addr, routes):
             "\r\n"
             "404 Not Found"
         ).encode('utf-8')
-    conn.sendall(response)
-    conn.close()
+        
+    try:
+        conn.sendall(response)
+    except Exception as e:
+        print(f"Error sending to {addr}: {e}")
+    finally:
+        conn.close()
 
 def run_proxy(ip, port, routes):
     """
@@ -187,11 +233,12 @@ def run_proxy(ip, port, routes):
     """
 
     proxy = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    proxy.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
     try:
         proxy.bind((ip, port))
         proxy.listen(50)
-        print("[Proxy] Listening on IP {} port {}".format(ip,port))
+        print(f"[Proxy] Listening on IP {ip} port {port}")
         while True:
             conn, addr = proxy.accept()
             #
@@ -199,8 +246,23 @@ def run_proxy(ip, port, routes):
             #        using multi-thread programming with the
             #        provided handle_client routine
             #
+            # --- BẮT ĐẦU HOÀN THÀNH TODO ---
+            print(f"[Proxy] Accepted connection from {addr}")
+            client_thread = threading.Thread(
+                target=handle_client,
+                args=(ip, port, conn, addr, routes)
+            )
+            client_thread.daemon = True
+            client_thread.start()
+            # --- KẾT THÚC HOÀN THÀNH TODO ---
+            
     except socket.error as e:
-      print("Socket error: {}".format(e))
+      print(f"Socket error: {e}")
+    except KeyboardInterrupt:
+        print("\n[Proxy] Server shutting down.")
+    finally:
+        proxy.close()
+
 
 def create_proxy(ip, port, routes):
     """
