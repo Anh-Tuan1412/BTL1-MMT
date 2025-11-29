@@ -327,22 +327,36 @@ class Response():
 
     # --- THÊM HÀM MỚI CHO TASK 1A & 1B ---
     def build_unauthorized(self):
+        # """
+        # Constructs a standard 401 Unauthorized HTTP response.
+        # """
+        # body = "401 Unauthorized"
+        
+        # # Chuẩn bị header
+        # self.status_code = 401
+        # self.reason = "Unauthorized"
+        # self.headers['Content-Type'] = 'text/html'
+        # self._content = body.encode('utf-8')
+        
+        # # Xây dựng header (có thể bao gồm cả Set-Cookie nếu ta muốn xóa cookie cũ)
+        # # Ví dụ: self.set_cookie = 'auth=; Path=/; Max-Age=0' (để xóa cookie)
+        
+        # header_bytes = self.build_response_header(self.request) 
+        # return header_bytes + self._content
         """
         Constructs a standard 401 Unauthorized HTTP response.
         """
+        self.set_cookie = 'auth=; Path=/'
+        print(f"[Response] Setting cookie: {self.set_cookie}")
         body = "401 Unauthorized"
-        
-        # Chuẩn bị header
-        self.status_code = 401
-        self.reason = "Unauthorized"
-        self.headers['Content-Type'] = 'text/html'
-        self._content = body.encode('utf-8')
-        
-        # Xây dựng header (có thể bao gồm cả Set-Cookie nếu ta muốn xóa cookie cũ)
-        # Ví dụ: self.set_cookie = 'auth=; Path=/; Max-Age=0' (để xóa cookie)
-        
-        header_bytes = self.build_response_header(self.request) 
-        return header_bytes + self._content
+        return (
+            f"HTTP/1.1 401 Unauthorized\r\n"
+            f"Content-Type: text/html\r\n"
+            f"Content-Length: {len(body)}\r\n"
+            f"Connection: close\r\n"
+            f"\r\n"
+            f"{body}"
+        ).encode('utf-8')
     # --- KẾT THÚC THÊM HÀM ---
 
     def build_response(self, request):

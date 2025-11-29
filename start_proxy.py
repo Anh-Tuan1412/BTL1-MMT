@@ -39,7 +39,7 @@ import socket
 import threading
 import argparse
 import re
-from urlparse import urlparse
+from urllib.parse import urlparse
 from collections import defaultdict
 
 from daemon import create_proxy
@@ -64,22 +64,28 @@ def parse_virtual_hosts(config_file):
     dist_policy_map = ""
 
     routes = {}
-    for host, block in host_blocks:
+    for hostname, block in host_blocks:
+        print(f"DEBUG: {hostname}")
         proxy_map = {}
 
         # Find all proxy_pass entries
-        proxy_passes = re.findall(r'proxy_pass\s+http://([^\s;]+);', block)
-        map = proxy_map.get(host,[])
-        map = map + proxy_passes
-        proxy_map[host] = map
-
+        proxy_passes = re.findall(r'proxy_pass\s+http://([^:\s;]+):?(\d*)[?;]?', block)
+        # map = proxy_map.get(host, [])
+        # map = map + proxy_passes
+        # proxy_map[host] = map
+        backends = []
+        for host, port in proxy_passes:
+            backends.append(f"{host}:{port}")
         # Find dist_policy if present
-        policy_match = re.search(r'dist_policy\s+(\w+)', block)
+        policy_match = re.search(r'dist_policy\s+([-\w]+)', block)
         if policy_match:
             dist_policy_map = policy_match.group(1)
         else: #default policy is round_robin
             dist_policy_map = 'round-robin'
-            
+        headers = {}
+        header_matches = re.findall(r'proxy_set_header\s+(\S+)\s+([^;]+);?', block)
+        for key, value in header_matches:
+            headers[key] = value
         #
         # @bksysnet: Build the mapping and policy
         # TODO: this policy varies among scenarios 
@@ -88,16 +94,17 @@ def parse_virtual_hosts(config_file):
         #       the policy is applied to identify the highes matching
         #       proxy_pass
         #
-        if len(proxy_map.get(host,[])) == 1:
-            routes[host] = (proxy_map.get(host,[])[0], dist_policy_map)
-        # esle if:
+        if len(backends) == 1:
+            routes[hostname] = (backends[0], dist_policy_map, headers)
+            
+        elif len(backends) == 0:
         #         TODO:  apply further policy matching here
         #
+            continue
         else:
-            routes[host] = (proxy_map.get(host,[]), dist_policy_map)
+            routes[hostname] = (backends, dist_policy_map, headers)
 
-    for key, value in routes.items():
-        print (key, value)
+    print(routes)
     return routes
 
 

@@ -14,11 +14,13 @@ DEFAULT_TRACKER_URL = "http://127.0.0.1:8000"
 class ChatClientGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("P2P Chat Client (Task 2)")
+        self.root.title("P2P Chat Client")
         self.root.geometry("800x600")
 
         # Biến trạng thái
         self.username = ""
+        self.auth_user = ""  # For auth login (e.g., "admin")
+        self.password = ""  # For auth
         self.p2p_port = 0
         self.tracker_url = ""
         self.server_socket = None
@@ -33,13 +35,27 @@ class ChatClientGUI:
         self.joined_channels = set() # Xóa #general mặc định, để logic đăng ký xử lý
         self.current_channel = tk.StringVar(root, value="#general")
 
-        # Bắt đầu với cửa sổ Login
-        self.show_login_dialog()
-        
-        if not self.running: # Nếu người dùng đóng cửa sổ login
+        # Session để giữ cookie
+        self.session = requests.Session()
+
+        # Step 1: Dialog for tracker URL
+        self.show_tracker_url_dialog()
+        if not self.running:
             self.root.destroy()
             return
-            
+
+        # Step 2: Auth dialog for cookie
+        self.show_auth_dialog()
+        if not self.running:
+            self.root.destroy()
+            return
+
+        # Step 3: Registration dialog for unique chat username + port
+        self.show_registration_dialog()
+        if not self.running:
+            self.root.destroy()
+            return
+        
         # Thiết lập GUI chính
         self.setup_main_gui()
         
@@ -63,11 +79,11 @@ class ChatClientGUI:
         # Xử lý khi đóng cửa sổ
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-    def show_login_dialog(self):
-        """Hiển thị cửa sổ dialog modal để nhập thông tin."""
+    def show_tracker_url_dialog(self):
+        """Hiển thị cửa sổ dialog cho tracker URL đầu tiên."""
         dialog = Toplevel(self.root)
-        dialog.title("Login")
-        dialog.geometry("300x200")
+        dialog.title("Enter Tracker URL")
+        dialog.geometry("300x150")
         dialog.transient(self.root) # Giữ dialog ở trên cửa sổ chính
         dialog.grab_set() # Chặn tương tác với cửa sổ chính
         dialog.update_idletasks() # Đảm bảo dialog được vẽ
@@ -77,34 +93,14 @@ class ChatClientGUI:
         y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog.winfo_height() // 2)
         dialog.geometry(f"+{x}+{y}")
 
-        tk.Label(dialog, text="Username:").pack(pady=5)
-        user_entry = tk.Entry(dialog)
-        user_entry.pack(padx=10, fill="x")
-
-        tk.Label(dialog, text="P2P Port:").pack(pady=5)
-        port_entry = tk.Entry(dialog)
-        port_entry.pack(padx=10, fill="x")
-
         tk.Label(dialog, text="Tracker URL:").pack(pady=5)
         tracker_entry = tk.Entry(dialog)
         tracker_entry.insert(0, DEFAULT_TRACKER_URL)
         tracker_entry.pack(padx=10, fill="x")
 
         def on_submit():
-            self.username = user_entry.get().strip()
-            port_str = port_entry.get().strip()
             self.tracker_url = tracker_entry.get().strip()
 
-            if not self.username or not port_str:
-                messagebox.showerror("Lỗi", "Username và P2P Port là bắt buộc.", parent=dialog)
-                return
-            
-            try:
-                self.p2p_port = int(port_str)
-            except ValueError:
-                messagebox.showerror("Lỗi", "P2P Port phải là một con số.", parent=dialog)
-                return
-            
             if not self.tracker_url.startswith("http"):
                  messagebox.showerror("Lỗi", "Tracker URL phải bắt đầu bằng http://", parent=dialog)
                  return
@@ -113,7 +109,7 @@ class ChatClientGUI:
             dialog.grab_release()
             dialog.destroy()
 
-        submit_btn = tk.Button(dialog, text="Connect", command=on_submit)
+        submit_btn = tk.Button(dialog, text="Submit URL", command=on_submit)
         submit_btn.pack(pady=10)
         
         def on_dialog_close():
@@ -126,6 +122,130 @@ class ChatClientGUI:
         # Chờ cho đến khi dialog bị đóng
         self.root.wait_window(dialog)
 
+    def show_auth_dialog(self):
+        """Hiển thị cửa sổ dialog cho auth login (admin/password)."""
+        dialog = Toplevel(self.root)
+        dialog.title("Auth Login")
+        dialog.geometry("300x200")
+        dialog.transient(self.root) # Giữ dialog ở trên cửa sổ chính
+        dialog.grab_set() # Chặn tương tác với cửa sổ chính
+        dialog.update_idletasks() # Đảm bảo dialog được vẽ
+        
+        # Canh giữa dialog
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog.winfo_width() // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+
+        tk.Label(dialog, text="Auth Username (admin):").pack(pady=5)
+        user_entry = tk.Entry(dialog)
+        user_entry.insert(0, "admin")
+        user_entry.pack(padx=10, fill="x")
+
+        tk.Label(dialog, text="Auth Password (password):").pack(pady=5)
+        pass_entry = tk.Entry(dialog, show="*")
+        pass_entry.insert(0, "password")
+        pass_entry.pack(padx=10, fill="x")
+
+        def on_submit():
+            self.auth_user = user_entry.get().strip()
+            self.password = pass_entry.get().strip()
+
+            if not self.auth_user or not self.password:
+                messagebox.showerror("Lỗi", "Auth Username và Password là bắt buộc.", parent=dialog)
+                return
+                 
+            # Thử login
+            if not self.login_to_tracker():
+                messagebox.showerror("Lỗi", "Login thất bại. Kiểm tra auth username/password.", parent=dialog)
+                return
+                 
+            self.running = True
+            dialog.grab_release()
+            dialog.destroy()
+
+        submit_btn = tk.Button(dialog, text="Login", command=on_submit)
+        submit_btn.pack(pady=10)
+        
+        def on_dialog_close():
+            self.running = False # Dừng ứng dụng nếu đóng dialog
+            dialog.grab_release()
+            dialog.destroy()
+
+        dialog.protocol("WM_DELETE_WINDOW", on_dialog_close)
+        
+        # Chờ cho đến khi dialog bị đóng
+        self.root.wait_window(dialog)
+
+    def show_registration_dialog(self):
+        """Hiển thị cửa sổ dialog cho registration (unique chat username + port)."""
+        dialog = Toplevel(self.root)
+        dialog.title("Register Chat Username")
+        dialog.geometry("300x150")
+        dialog.transient(self.root) # Giữ dialog ở trên cửa sổ chính
+        dialog.grab_set() # Chặn tương tác với cửa sổ chính
+        dialog.update_idletasks() # Đảm bảo dialog được vẽ
+        
+        # Canh giữa dialog
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog.winfo_width() // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+
+        tk.Label(dialog, text="Chat Username (unique):").pack(pady=5)
+        user_entry = tk.Entry(dialog)
+        user_entry.pack(padx=10, fill="x")
+
+        tk.Label(dialog, text="P2P Port:").pack(pady=5)
+        port_entry = tk.Entry(dialog)
+        port_entry.pack(padx=10, fill="x")
+
+        def on_submit():
+            self.username = user_entry.get().strip()
+            port_str = port_entry.get().strip()
+
+            if not self.username or not port_str:
+                messagebox.showerror("Lỗi", "Chat Username và P2P Port là bắt buộc.", parent=dialog)
+                return
+            
+            try:
+                self.p2p_port = int(port_str)
+            except ValueError:
+                messagebox.showerror("Lỗi", "P2P Port phải là một con số.", parent=dialog)
+                return
+                 
+            self.running = True
+            dialog.grab_release()
+            dialog.destroy()
+
+        submit_btn = tk.Button(dialog, text="Register", command=on_submit)
+        submit_btn.pack(pady=10)
+        
+        def on_dialog_close():
+            self.running = False # Dừng ứng dụng nếu đóng dialog
+            dialog.grab_release()
+            dialog.destroy()
+
+        dialog.protocol("WM_DELETE_WINDOW", on_dialog_close)
+        
+        # Chờ cho đến khi dialog bị đóng
+        self.root.wait_window(dialog)
+
+    def login_to_tracker(self):
+        """Login vào tracker để lấy cookie."""
+        payload = {"username": self.auth_user, "password": self.password}
+        try:
+            print(f"Debug: {self.tracker_url}")
+            resp = self.session.post(f"{self.tracker_url}/login", data=payload, timeout=5)  # Form data
+            print(f"Debug: {resp}")
+            print(f"[DEBUG] Set-Cookie from server: {resp.headers.get('Set-Cookie')}")  # Log cookie to terminal
+            if resp.status_code == 200 and 'auth=true' in resp.headers.get('Set-Cookie', ''):
+                self.log_message("[Tracker] Login thành công.")
+                return True
+            else:
+                self.log_message("[Tracker Error] Login thất bại.")
+                return False
+        except Exception as e:
+            self.log_message(f"[Tracker Error] Lỗi login: {e}")
+            return False
 
     def setup_main_gui(self):
         """Thiết lập giao diện chat chính."""
@@ -216,7 +336,7 @@ class ChatClientGUI:
         msg = self.msg_entry.get()
         if msg:
             channel = self.current_channel.get()
-            # Gửi tin nhắn trong một thread riêng để không làm đơ GUI
+            # Gửi tin nhắn trong một thread riêng để không block GUI
             threading.Thread(target=self.broadcast_message, args=(channel, msg), daemon=True).start()
             self.msg_entry.delete(0, END)
 
@@ -294,9 +414,9 @@ class ChatClientGUI:
         try:
             url = f"{self.tracker_url}{path}"
             if method == "GET":
-                resp = requests.get(url, timeout=5)
+                resp = self.session.get(url, timeout=5)
             elif method == "POST":
-                resp = requests.post(url, json=body_obj, timeout=5)
+                resp = self.session.post(url, json=body_obj, timeout=5)
             
             resp.raise_for_status() # Báo lỗi nếu status code là 4xx hoặc 5xx
             return resp.json()
@@ -307,7 +427,7 @@ class ChatClientGUI:
     def register_with_tracker(self):
         """API 1: Đăng ký với tracker."""
         payload = {"username": self.username, "p2p_port": self.p2p_port}
-        res = self.http_request("POST", "/chat/register", payload)
+        res = self.http_request("POST", "/submit-info", payload)
         
         if res and res.get("status") == "success":
             self.log_message(f"[Tracker] Đăng ký thành công: {res.get('message')}")
@@ -325,7 +445,7 @@ class ChatClientGUI:
     def join_channel(self, channel_name):
         """API 3: Tham gia kênh."""
         payload = {"username": self.username, "channel": channel_name}
-        res = self.http_request("POST", "/chat/join", payload)
+        res = self.http_request("POST", "/add-list", payload)
         
         if res and res.get("status") == "success":
             if channel_name not in self.joined_channels:
@@ -342,7 +462,7 @@ class ChatClientGUI:
     def sync_peers(self, channel):
         """API 4: Lấy danh sách peer và kết nối."""
         payload = {"username": self.username, "channel": channel}
-        res = self.http_request("POST", "/chat/peers", payload)
+        res = self.http_request("POST", "/get-list", payload)
         
         if res and res.get("status") == "success":
             peers = res.get("peers", [])
@@ -416,7 +536,7 @@ class ChatClientGUI:
             conn.settimeout(None) # Tắt timeout
             msg = json.loads(data)
             
-            if msg.get("type") == "handshake":
+            if msg.get("type") == "connect-peer":
                 peer_username = msg.get("username")
                 if not peer_username:
                     conn.close()
@@ -438,11 +558,13 @@ class ChatClientGUI:
                     
                     try:
                         chat_msg = json.loads(data.decode('utf-8'))
-                        if chat_msg.get("type") == "chat":
+                        sender = chat_msg.get("username", "unknown")
+                        content = chat_msg.get("content", "")
+                        if chat_msg.get("type") == "broadcast-peer":
                             ch = chat_msg.get("channel", "unknown")
-                            sender = chat_msg.get("username", "unknown")
-                            content = chat_msg.get("content", "")
                             self.log_message(f"[{ch}] {sender}: {content}")
+                        elif chat_msg.get("type") == "send-peer":
+                            self.log_message(f"[PM] {sender}: {content}")
                     except json.JSONDecodeError:
                         self.log_message(f"[P2P] {peer_username} gửi tin nhắn lỗi (không phải JSON).")
             else:
@@ -489,9 +611,9 @@ class ChatClientGUI:
             s.connect((peer_ip, peer_port))
             s.settimeout(None) # Tắt timeout
             
-            # Gửi "handshake" ngay lập tức
+            # Gửi "connect-peer" ngay lập tức
             handshake_msg = json.dumps({
-                "type": "handshake",
+                "type": "connect-peer",
                 "username": self.username
             }).encode('utf-8')
             s.sendall(handshake_msg)
@@ -519,11 +641,13 @@ class ChatClientGUI:
                 
                 try:
                     chat_msg = json.loads(data.decode('utf-8'))
-                    if chat_msg.get("type") == "chat":
+                    sender = chat_msg.get("username", "unknown")
+                    content = chat_msg.get("content", "")
+                    if chat_msg.get("type") == "broadcast-peer":
                         ch = chat_msg.get("channel", "unknown")
-                        sender = chat_msg.get("username", "unknown")
-                        content = chat_msg.get("content", "")
                         self.log_message(f"[{ch}] {sender}: {content}")
+                    elif chat_msg.get("type") == "send-peer":
+                        self.log_message(f"[PM] {sender}: {content}")
                 except json.JSONDecodeError:
                     self.log_message(f"[P2P] {peer_username} gửi tin nhắn lỗi (không phải JSON).")
         except Exception:
@@ -544,10 +668,39 @@ class ChatClientGUI:
             self.log_message(f"[System] Bạn phải tham gia kênh '{channel}' trước khi gửi!")
             return
 
+        # Kiểm tra nếu là private message (/pm username message)
+        if message_content.startswith("/pm "):
+            parts = message_content[4:].strip().split(" ", 1)
+            if len(parts) < 2:
+                self.log_message("[System] Cú pháp: /pm <username> <message>")
+                return
+            target_username, pm_content = parts[0], parts[1]
+            
+            with self.lock:
+                if target_username not in self.peer_sockets:
+                    self.log_message(f"[System] {target_username} không kết nối hoặc không tồn tại.")
+                    return
+                sock = self.peer_sockets[target_username]
+            
+            payload = {
+                "type": "send-peer",
+                "username": self.username,
+                "content": pm_content
+            }
+            json_payload = json.dumps(payload).encode('utf-8')
+            
+            try:
+                sock.sendall(json_payload)
+                self.log_message(f"[PM] {self.username}: {pm_content}")  # Tự hiển thị
+            except Exception as e:
+                self.log_message(f"[PM Error] Lỗi gửi cho {target_username}: {e}")
+            return
+
+        # Tin nhắn channel bình thường (broadcast)
         self.log_message(f"[{channel}] {self.username}: {message_content}") # Tự hiển thị tin nhắn của mình
 
         payload = {
-            "type": "chat",
+            "type": "broadcast-peer",
             "username": self.username,
             "channel": channel,
             "content": message_content

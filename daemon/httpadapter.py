@@ -21,7 +21,7 @@ Request and Response objects to handle client-server communication.
 """
 
 import json # Cần import json
-from .request import Request
+from .request import Request, read_full_http_request
 from .response import Response
 from .dictionary import CaseInsensitiveDict
 
@@ -76,44 +76,11 @@ class HttpAdapter:
 
         # --- SỬA LỖI ĐỌC BUFFER TCP ---
         try:
-            # 1. Đọc phần header trước (giả định header không quá 4096 bytes)
-            header_data = b""
-            while b'\r\n\r\n' not in header_data:
-                chunk = conn.recv(1024)
-                if not chunk:
-                    break
-                header_data += chunk
-            
-            if not header_data:
-                print(f"Client {addr} disconnected before sending headers.")
-                return 
-            
-            # 2. Tách header và phần body (có thể đã đọc lố)
-            parts = header_data.split(b'\r\n\r\n', 1)
-            header_text = parts[0].decode('utf-8')
-            body_bytes = parts[1] if len(parts) > 1 else b""
-
-            # 3. Phân tích header để tìm Content-Length
-            headers_dict = {}
-            for line in header_text.split('\r\n')[1:]: # Bỏ dòng đầu (POST /... HTTP/1.1)
-                if ': ' in line:
-                    key, val = line.split(': ', 1)
-                    headers_dict[key.lower()] = val
-            
-            content_length = int(headers_dict.get('content-length', 0))
-
-            # 4. Đọc phần body còn lại (nếu có)
-            while len(body_bytes) < content_length:
-                bytes_to_read = content_length - len(body_bytes)
-                chunk = conn.recv(min(bytes_to_read, 4096)) # Đọc phần còn thiếu
-                if not chunk:
-                    print(f"Client {addr} disconnected before sending full body.")
-                    break # Client ngắt kết nối
-                body_bytes += chunk
-                
-            # msg = Toàn bộ request
-            msg = header_text + '\r\n\r\n' + body_bytes.decode('utf-8')
-
+            msg = read_full_http_request(conn=conn)
+            if not msg:
+                print(f"Error receiving full request data from {addr}")
+                conn.close()
+                return
         except Exception as e:
             print(f"Error receiving full request data from {addr}: {e}")
             return
@@ -123,70 +90,33 @@ class HttpAdapter:
 
         response = None # Khởi tạo response
 
-        # --- BẮT ĐẦU LOGIC TASK 1A & 1B (Theo PDF) ---
-
-        # Task 1A: Xử lý POST /login
-        if req.method == 'POST' and req.path == '/login':
-            form_data = {}
-            if req.body:
-                pairs = req.body.split('&')
-                for pair in pairs:
-                    if '=' in pair:
-                        key, val = pair.split('=', 1) 
-                        form_data[key] = val 
-            
-            username = form_data.get('username')
-            password = form_data.get('password')
-
-            if username == 'admin' and password == 'password':
-                print("[HttpAdapter] Login successful for admin")
-                req.path = '/index.html' 
-                resp.set_cookie = 'auth=true; Path=/' 
-                response = resp.build_response(req) # Xây dựng response ngay
-            else:
-                print(f"[HttpAdapter] Login failed for user: {username}")
-                response = resp.build_unauthorized()
-        
-        # Task 1B: Xử lý GET (kiểm tra cookie)
-        elif req.method == 'GET':
-            if req.path == '/login.html':
-                print(f"[HttpAdapter] Serving public asset: {req.path}")
-                response = resp.build_response(req)
-            
-            else: # Bao gồm /index.html, /css/*, /images/*
-                if req.cookies.get('auth') == 'true':
-                    print(f"[HttpAdapter] Auth cookie valid, serving: {req.path}")
-                    response = resp.build_response(req)
-                else:
-                    print(f"[HttpAdapter] Auth cookie invalid/missing, serving 401 for: {req.path}")
-                    response = resp.build_unauthorized()
-        
-        # --- KẾT THÚC LOGIC TASK 1 ---
-
         # Handle request hook (Task 2 - WeApRous)
         if req.hook:
-            if response is None: 
-                print(f"[HttpAdapter] hook in route-path METHOD {req.hook._route_path} PATH {req.hook._route_methods}")
-                
+            print(f"[HttpAdapter] hook in route-path METHOD {req.hook._route_path} PATH {req.hook._route_methods}")
+            
+            try:
+                handler_result = req.hook(request=req, response=resp)
+            except TypeError: 
                 try:
-                    handler_result_dict = req.hook(request=req, response=resp)
-                except TypeError: 
-                    try:
-                        handler_result_dict = req.hook(headers=req.headers, body=req.body)
-                    except Exception as e:
-                         print(f"[HttpAdapter] Error executing hook (headers, body): {e}")
-                         handler_result_dict = {"status": "error", "message": f"Hook execution error: {e}"}
-                         resp.status_code = 500
-                         resp.reason = "Internal Server Error"
+                    handler_result = req.hook(headers=req.headers, body=req.body)
                 except Exception as e:
-                    print(f"[HttpAdapter] Error executing hook (request, response): {e}")
-                    handler_result_dict = {"status": "error", "message": f"Hook execution error: {e}"}
-                    resp.status_code = 500
-                    resp.reason = "Internal Server Error"
+                     print(f"[HttpAdapter] Error executing hook (headers, body): {e}")
+                     handler_result = {"status": "error", "message": f"Hook execution error: {e}"}
+                     resp.status_code = 500
+                     resp.reason = "Internal Server Error"
+            except Exception as e:
+                print(f"[HttpAdapter] Error executing hook (request, response): {e}")
+                handler_result = {"status": "error", "message": f"Hook execution error: {e}"}
+                resp.status_code = 500
+                resp.reason = "Internal Server Error"
 
-                # Xử lý kết quả trả về từ hook
+            # Xử lý kết quả trả về từ hook
+            if isinstance(handler_result, str):
+                # Nếu hook trả về string đầy đủ response (ví dụ cho /login với Set-Cookie)
+                response = handler_result.encode('utf-8')
+            else:
                 try:
-                    json_body = json.dumps(handler_result_dict).encode('utf-8') 
+                    json_body = json.dumps(handler_result).encode('utf-8') 
                     
                     if resp.status_code is None: 
                         resp.status_code = 200
@@ -207,6 +137,48 @@ class HttpAdapter:
                     resp._content = error_payload.encode('utf-8')
                     resp._header = resp.build_response_header(req)
                     response = resp._header + resp._content
+
+        # --- BẮT ĐẦU LOGIC TASK 1A & 1B (Theo PDF) ---
+        # Chỉ xử lý nếu không có hook (tức là static request)
+
+        if response is None:
+            # Task 1A: Xử lý POST /login
+            if req.method == 'POST' and req.path == '/login':
+                form_data = {}
+                if req.body:
+                    pairs = req.body.split('&')
+                    for pair in pairs:
+                        if '=' in pair:
+                            key, val = pair.split('=', 1) 
+                            form_data[key.strip()] = val.strip() 
+                
+                username = form_data.get('username')
+                password = form_data.get('password')
+                print(f"[DEBUG]: {username}, {password}")
+                if username == 'admin' and password == 'password':
+                    print("[HttpAdapter] Login successful for admin")
+                    req.path = '/index.html' 
+                    resp.set_cookie = 'auth=true; Path=/' 
+                    response = resp.build_response(req) # Xây dựng response ngay
+                else:
+                    print(f"[HttpAdapter] Login failed for user: {username}")
+                    response = resp.build_unauthorized()
+            
+            # Task 1B: Xử lý GET (kiểm tra cookie)
+            elif req.method == 'GET':
+                if req.path == '/login.html':
+                    print(f"[HttpAdapter] Serving public asset: {req.path}")
+                    response = resp.build_response(req)
+                
+                else: # Bao gồm /index.html, /css/*, /images/*
+                    if req.cookies.get('auth') == 'true':
+                        print(f"[HttpAdapter] Auth cookie valid, serving: {req.path}")
+                        response = resp.build_response(req)
+                    else:
+                        print(f"[HttpAdapter] Auth cookie invalid/missing, serving 401 for: {req.path}")
+                        response = resp.build_unauthorized()
+            
+            # --- KẾT THÚC LOGIC TASK 1 ---
 
         if response is None:
             response = resp.build_response(req)

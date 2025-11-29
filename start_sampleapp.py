@@ -25,14 +25,66 @@ and can be configured via command-line arguments.
 """
 
 import json
-import socket
 import argparse
-
+import threading # <-- 1. Import threading
 from daemon.weaprous import WeApRous
+from daemon.dictionary import CaseInsensitiveDict
 
 PORT = 8000  # Default port
 
 app = WeApRous()
+
+# ----- Cơ sở dữ liệu "in-memory" (giống file PDF) -----
+
+db_lock = threading.Lock() # <-- 2. Tạo một Lock toàn cục
+
+db = {
+    "peers": {
+        # "username": {"ip": "1.2.3.4", "port": 5001, "channels": ["general"], "last_heartbeat": time.time()}
+    },
+    "channels": {
+        "general": {"description": "Kênh chat chung"},
+        "random": {"description": "Kênh chat ngẫu nhiên"}
+    }
+}
+# ------------------------------------------------
+
+def parse_headers(headers):
+    """
+    Parse headers whether input is raw string or dict (CaseInsensitiveDict).
+    Handles both standalone WeApRous mode (string) and integrated HttpAdapter mode (dict).
+    """
+    header_dict = CaseInsensitiveDict()
+    
+    if isinstance(headers, str):
+        # Original string mode: split lines
+        for line in headers.splitlines():
+            if ':' in line:
+                key, value = line.split(':', 1)
+                header_dict[key.strip()] = value.strip()
+    elif isinstance(headers, (dict, CaseInsensitiveDict)):
+        # Dict mode: copy directly
+        for key, value in headers.items():
+            header_dict[key] = value
+    else:
+        # Fallback: empty if invalid type
+        print(f"[Warning] Invalid headers type: {type(headers)}")
+    
+    return header_dict
+
+def get_cookie(header_dict):
+    cookies = header_dict.get('Cookie', '')
+    cookie_dict = {}
+    for c in cookies.split(';'):
+        if '=' in c:
+            k, v = c.split('=', 1)
+            cookie_dict[k.strip()] = v.strip()
+    return cookie_dict
+
+def is_authenticated(headers):
+    h = parse_headers(headers)
+    c = get_cookie(h)
+    return c.get('auth') == 'true'
 
 @app.route('/login', methods=['POST'])
 def login(headers="guest", body="anonymous"):
@@ -41,24 +93,131 @@ def login(headers="guest", body="anonymous"):
 
     This route simulates a login process and prints the provided headers and body
     to the console.
-
-    :param headers (str): The request headers or user identifier.
-    :param body (str): The request body or login payload.
     """
-    print "[SampleApp] Logging in {} to {}".format(headers, body)
+    print ("[SampleApp] Logging in {} to {}".format(headers, body))
 
-@app.route('/hello', methods=['PUT'])
-def hello(headers, body):
-    """
-    Handle greeting via PUT request.
+    # Parse form data from body
+    form = {}
+    for part in body.split('&'):
+        if '=' in part:
+            k, v = part.split('=', 1)
+            form[k] = v
 
-    This route prints a greeting message to the console using the provided headers
-    and body.
+    if form.get('username') == 'admin' and form.get('password') == 'password':
+        body_json = json.dumps({"status": "success"})
+        return f"HTTP/1.1 200 OK\r\nSet-Cookie: auth=true\r\nContent-Type: application/json\r\nContent-Length: {len(body_json)}\r\n\r\n{body_json}"
+    else:
+        print(f"NGU VCL {form.get('username') == 'admin'}, {form.get('password')}")
+        return "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n"
 
-    :param headers (str): The request headers or user identifier.
-    :param body (str): The request body or message payload.
-    """
-    print "[SampleApp] ['PUT'] Hello in {} to {}".format(headers, body)
+# API để unregister peer
+@app.route('/unregister', methods=['POST'])
+def unregister(headers="guest", body="anonymous"):
+    if not is_authenticated(headers):
+        return "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n"
+    with db_lock:
+        try:
+            body_data = json.loads(body)
+            username = body_data['username']
+
+            if username in db["peers"]:
+                del db["peers"][username]
+                print(f"[ChatServer] Unregistered Peer: {username}")
+                return {"status": "success", "message": f"{username} unregistered"}
+            else:
+                return {"status": "error", "message": "Username not found"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+# API 1: Peer đăng ký (Peer registration)
+#
+@app.route('/submit-info', methods=['POST'])
+def submit_info(headers="guest", body="anonymous"):
+    if not is_authenticated(headers):
+        return "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n"
+    with db_lock: # <-- 3. Khóa tài nguyên
+        try:
+            body_data = json.loads(body)
+            username = body_data['username']
+            p2p_port = int(body_data['p2p_port'])
+            
+            # Lấy IP của client từ headers (X-Forwarded-For nếu có, hoặc fallback)
+            header_dict = parse_headers(headers)
+            ip = header_dict.get('X-Forwarded-For', header_dict.get('Host', 'unknown').split(':')[0])
+            
+            if username in db["peers"]:
+                 return {"status": "error", "message": "Username đã tồn tại"}
+
+            db["peers"][username] = {"ip": ip, "port": p2p_port, "channels": []}
+            print(f"[ChatServer] Đăng ký Peer: {username} tại {ip}:{p2p_port}")
+            
+            return {"status": "success", "message": f"Chào mừng {username}"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+# API 2: Lấy danh sách kênh
+@app.route('/get-channel-list', methods=['GET'])
+def get_channel_list(headers="guest", body="anonymous"):
+    if not is_authenticated(headers):
+        return "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n"
+    with db_lock: # <-- 3. Khóa tài nguyên (kể cả khi chỉ đọc)
+        return {"status": "success", "channels": list(db["channels"].keys())}
+
+# API 3: Tham gia kênh
+@app.route('/add-list', methods=['POST'])
+def add_list(headers="guest", body="anonymous"):
+    if not is_authenticated(headers):
+        return "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n"
+    with db_lock: # <-- 3. Khóa tài nguyên
+        try:
+            body_data = json.loads(body)
+            username = body_data['username']
+            channel = body_data['channel']
+
+            if username not in db["peers"]:
+                return {"status": "error", "message": "Peer chưa đăng ký"}
+            if channel not in db["channels"]:
+                db["channels"][channel] = {"description": f"Kênh {channel} được tạo tự động"}
+                print(f"[ChatServer] Kênh mới được tạo: {channel}")
+
+
+            if channel not in db["peers"][username]["channels"]:
+                db["peers"][username]["channels"].append(channel)
+                
+            print(f"[ChatServer] Peer {username} tham gia kênh {channel}")
+            return {"status": "success", "message": f"{username} đã tham gia {channel}"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+# API 4: Lấy danh sách peer trong kênh (Peer discovery)
+#
+@app.route('/get-list', methods=['POST'])
+def get_list(headers="guest", body="anonymous"):
+    if not is_authenticated(headers):
+        return "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n"
+    with db_lock: # <-- 3. Khóa tài nguyên
+        try:
+            body_data = json.loads(body)
+            channel = body_data['channel']
+            my_username = body_data['username'] # Để không lấy chính mình
+
+            if channel not in db["channels"]:
+                return {"status": "error", "message": "Kênh không tồn tại"}
+
+            peer_list = []
+            # Vòng lặp for cũng cần được bảo vệ
+            for username, data in db["peers"].items():
+                # Nếu peer có trong kênh VÀ không phải là tôi
+                if channel in data["channels"] and username != my_username:
+                    peer_list.append({
+                        "username": username,
+                        "ip": data["ip"],
+                        "port": data["port"]
+                    })
+            
+            return {"status": "success", "peers": peer_list}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
     # Parse command-line arguments to configure server IP and port

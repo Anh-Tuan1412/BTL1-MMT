@@ -65,6 +65,7 @@ class Request():
         self.routes = {}
         #: Hook point for routed mapped-path
         self.hook = None
+        
 
     def extract_request_line(self, request):
         try:
@@ -170,3 +171,38 @@ class Request():
 
     def prepare_cookies(self, cookies):
             self.headers["Cookie"] = cookies
+
+def read_full_http_request(conn, buffer_size=4096):
+    """
+    Reads a full HTTP request from a socket, handling Content-Length.
+    Returns the full request as a string (decoded).
+    """
+    try:
+        header_data = b""
+        while b'\r\n\r\n' not in header_data:
+            chunk = conn.recv(buffer_size)
+            if not chunk:
+                return None
+            header_data += chunk
+        
+        parts = header_data.split(b'\r\n\r\n', 1)
+        header_text = parts[0].decode('utf-8', errors='ignore')
+        body_bytes = parts[1] if len(parts) > 1 else b""
+
+        content_length = 0
+        for line in header_text.split('\r\n'):
+            if line.lower().startswith('content-length:'):
+                content_length = int(line.split(':', 1)[1].strip())
+                break
+
+        while len(body_bytes) < content_length:
+            to_read = content_length - len(body_bytes)
+            chunk = conn.recv(min(to_read, buffer_size))
+            if not chunk:
+                break
+            body_bytes += chunk
+            
+        return header_text + '\r\n\r\n' + body_bytes.decode('utf-8', errors='ignore')
+    except Exception as e:
+        print(f"Error reading request: {e}")
+        return None

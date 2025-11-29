@@ -29,8 +29,9 @@ Requirement:
 """
 import socket
 import threading
-import itertools # Thêm thư viện để hỗ trợ round-robin
+import itertools 
 from .response import *
+from .request import read_full_http_request
 from .httpadapter import HttpAdapter
 from .dictionary import CaseInsensitiveDict
 
@@ -46,6 +47,7 @@ PROXY_PASS = {
 round_robin_iterators = {}
 rr_lock = threading.Lock()
 
+
 def forward_request(host, port, request):
     """
     Forwards an HTTP request to a backend server and retrieves the response.
@@ -59,16 +61,19 @@ def forward_request(host, port, request):
     """
 
     backend = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
+    print(f"[DEBUG]: {request}")
     try:
         backend.connect((host, port))
         backend.sendall(request.encode())
         response = b""
         while True:
-            chunk = backend.recv(4096)
-            if not chunk:
-                break
-            response += chunk
+            try:
+                chunk = backend.recv(4096)
+                if not chunk:
+                    break
+                response += chunk
+            except Exception as e:
+                print(f"{e}")
         return response
     except socket.error as e:
       print("Socket error: {}".format(e))
@@ -94,7 +99,7 @@ def resolve_routing_policy(hostname, routes):
 
     print(f"[Proxy] Resolving hostname: {hostname}")
     # Lấy (proxy_map, policy) từ routes, nếu không thấy thì dùng default
-    proxy_map, policy = routes.get(hostname, (['127.0.0.1:9000'], 'round-robin'))
+    proxy_map, policy, extra_headers = routes.get(hostname, (['127.asd.0.1:9000'], 'round-robin', {}))
     
     print(f"[Proxy] Map: {proxy_map}")
     print(f"[Proxy] Policy: {policy}")
@@ -137,7 +142,7 @@ def resolve_routing_policy(hostname, routes):
         print(f"[Proxy] Resolve route for hostname {hostname} is singular")
         proxy_host, proxy_port = proxy_map.split(":", 1)
 
-    return proxy_host, proxy_port
+    return proxy_host, int(proxy_port), extra_headers
 
 def handle_client(ip, port, conn, addr, routes):
     """
@@ -159,8 +164,9 @@ def handle_client(ip, port, conn, addr, routes):
     """
 
     try:
-        request = conn.recv(1024).decode()
+        request = read_full_http_request(conn=conn)
         if not request:
+            print(f"Error receiving full request data from {addr}")
             conn.close()
             return
             
@@ -185,12 +191,13 @@ def handle_client(ip, port, conn, addr, routes):
         hostname = f"{ip}:{port}" 
         print(f"[Proxy] No Host header, defaulting to proxy address: {hostname}")
     else:
+        hostname = hostname.split(':')[0]
         print(f"[Proxy] Request from {addr} for Host: {hostname}")
 
 
     # Resolve the matching destination in routes and need conver port
     # to integer value
-    resolved_host, resolved_port = resolve_routing_policy(hostname, routes)
+    resolved_host, resolved_port, extra_headers = resolve_routing_policy(hostname, routes)
     try:
         resolved_port = int(resolved_port)
     except ValueError:
@@ -199,6 +206,42 @@ def handle_client(ip, port, conn, addr, routes):
 
     if resolved_host:
         print(f"[Proxy] Host {hostname} is forwarded to {resolved_host}:{resolved_port}")
+
+        # Modify the request to include extra headers if any
+        if extra_headers:
+            request_lines = request.splitlines()
+            new_lines = []
+            for line in request_lines:
+                lower_line = line.lower()
+                added = False
+                for key, value in extra_headers.items():
+                    lower_key = key.lower()
+                    if lower_line.startswith(lower_key + ':'):
+                        if value.startswith('$'):
+                            # Preserve original value for variables like $host or $http_cookie
+                            if value == '$host':
+                                new_lines.append(f"{key}: {hostname}")
+                            else:
+                                new_lines.append(line)  # Keep original for others like $http_cookie
+                        else:
+                            new_lines.append(f"{key}: {value}")
+                        added = True
+                        break
+                if not added:
+                    new_lines.append(line)
+
+            # Add any extra headers not already present
+            for key, value in extra_headers.items():
+                if not any(line.lower().startswith(key.lower() + ':') for line in new_lines):
+                    if value.startswith('$'):
+                        if value == '$host':
+                            new_lines.append(f"{key}: {hostname}")
+                    else:
+                        new_lines.append(f"{key}: {value}")
+
+            request = "\r\n".join(new_lines) + "\r\n\r\n"
+
+        
         response = forward_request(resolved_host, resolved_port, request)        
     else:
         response = (
@@ -246,7 +289,6 @@ def run_proxy(ip, port, routes):
             #        using multi-thread programming with the
             #        provided handle_client routine
             #
-            # --- BẮT ĐẦU HOÀN THÀNH TODO ---
             print(f"[Proxy] Accepted connection from {addr}")
             client_thread = threading.Thread(
                 target=handle_client,
@@ -254,7 +296,6 @@ def run_proxy(ip, port, routes):
             )
             client_thread.daemon = True
             client_thread.start()
-            # --- KẾT THÚC HOÀN THÀNH TODO ---
             
     except socket.error as e:
       print(f"Socket error: {e}")

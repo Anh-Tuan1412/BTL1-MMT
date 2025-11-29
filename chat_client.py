@@ -156,7 +156,7 @@ def main_cli():
         }, timeout=3)
         print(f"[Tracker] Server nói: {resp.json().get('message')}")
         if resp.json().get('status') == 'error':
-            return # Dừng nếu không đăng ký được
+            return 
     except Exception as e:
         print(f"[Tracker] Không thể kết nối Tracker Server: {e}")
         return
