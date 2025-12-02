@@ -2,7 +2,7 @@ import socket
 import threading
 import json
 import time
-import requests  # Sử dụng requests để gọi API tracker
+import requests  
 import queue
 import tkinter as tk
 from tkinter import simpledialog, scrolledtext, messagebox, Listbox, END, Toplevel
@@ -233,10 +233,10 @@ class ChatClientGUI:
         """Login vào tracker để lấy cookie."""
         payload = {"username": self.auth_user, "password": self.password}
         try:
-            print(f"Debug: {self.tracker_url}")
+            #print(f"Debug: {self.tracker_url}")
             resp = self.session.post(f"{self.tracker_url}/login", data=payload, timeout=5)  # Form data
-            print(f"Debug: {resp}")
-            print(f"[DEBUG] Set-Cookie from server: {resp.headers.get('Set-Cookie')}")  # Log cookie to terminal
+            #print(f"Debug: {resp}")
+            #print(f"[DEBUG] Set-Cookie from server: {resp.headers.get('Set-Cookie')}")  # Log cookie to terminal
             if resp.status_code == 200 and 'auth=true' in resp.headers.get('Set-Cookie', ''):
                 self.log_message("[Tracker] Login thành công.")
                 return True
@@ -407,7 +407,6 @@ class ChatClientGUI:
             for peer_name in sorted(self.peer_sockets.keys()):
                 self.peer_list.insert(END, peer_name)
 
-    # --- Logic Mạng (Tương tự chat_client.py) ---
     
     def http_request(self, method, path, body_obj=None):
         """Hàm helper để gọi API của Tracker."""
@@ -466,6 +465,7 @@ class ChatClientGUI:
         
         if res and res.get("status") == "success":
             peers = res.get("peers", [])
+            #print(f"DEBUG: {peers}")
             if not peers:
                 self.log_message(f"[{channel}] Không tìm thấy peer nào khác.")
                 return
@@ -552,7 +552,14 @@ class ChatClientGUI:
                 
                 # Vòng lặp nhận tin nhắn chat
                 while self.running:
-                    data = conn.recv(BUFFER)
+                    try:
+                        # CRITICAL FIX: Bắt lỗi OSError (nơi WinError 10038 sinh ra)
+                        data = conn.recv(BUFFER) 
+                    except OSError as e:
+                        # 10038 là lỗi "Not a socket" (đã bị đóng).
+                        # Bất kỳ lỗi kết nối nào khác (10054, 10053) cũng nên kết thúc luồng.
+                        self.log_message(f"[P2P Error] Lỗi khi đọc socket của {peer_username} ({addr[0]}): {e}. Kết nối đã bị đóng.")
+                        break # Thoát vòng lặp để chuyển đến khối finally
                     if not data:
                         break # Peer ngắt kết nối
                     

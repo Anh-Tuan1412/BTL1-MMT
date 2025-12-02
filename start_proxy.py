@@ -65,7 +65,7 @@ def parse_virtual_hosts(config_file):
 
     routes = {}
     for hostname, block in host_blocks:
-        print(f"DEBUG: {hostname}")
+        #print(f"DEBUG: {hostname}")
         proxy_map = {}
 
         # Find all proxy_pass entries

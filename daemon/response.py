@@ -163,9 +163,8 @@ class Response():
         main_type, sub_type = mime_type.split('/', 1)
         print(f"[Response] processing MIME main_type={main_type} sub_type={sub_type}")
         
-        # --- BẮT ĐẦU HOÀN THÀNH TODO ---
         
-        self.headers['Content-Type'] = mime_type # Gán Content-Type trước
+        self.headers['Content-Type'] = mime_type 
 
         if main_type == 'text':
             if sub_type in ('plain', 'css', 'javascript', 'csv', 'xml'):
@@ -173,7 +172,7 @@ class Response():
             elif sub_type == 'html':
                 base_dir = os.path.join(BASE_DIR, "www/")
             else:
-                base_dir = os.path.join(BASE_DIR, "static/") # Mặc định cho text
+                base_dir = os.path.join(BASE_DIR, "static/") 
 
         elif main_type == 'image':
             base_dir = os.path.join(BASE_DIR, "static/")
@@ -185,10 +184,8 @@ class Response():
             if sub_type in ('javascript', 'json', 'xml', 'zip', 'pdf', 'octet-stream', 'x-www-form-urlencoded'):
                 base_dir = os.path.join(BASE_DIR, "static/")
             else:
-                # 'application/...' không xác định có thể là 1 app
                 base_dir = os.path.join(BASE_DIR, "apps/")
         
-        # --- KẾT THÚC HOÀN THÀNH TODO ---
         
         else:
             # Loại MIME không xác định
@@ -230,11 +227,9 @@ class Response():
             #  TODO: implement the step of fetch the object file
             #        store in the return value of content
             #
-        # --- BẮT ĐẦU HOÀN THÀNH TODO ---
         content = b""
         content_length = 0
         try:
-            # Mở file ở chế độ 'rb' (read binary)
             with open(safe_filepath, 'rb') as f:
                 content = f.read()
                 content_length = len(content)
@@ -246,7 +241,6 @@ class Response():
             return 0, b""
             
         return content_length, content
-        # --- KẾT THÚC HOÀN THÀNH TODO ---
 
 
     def build_response_header(self, request):

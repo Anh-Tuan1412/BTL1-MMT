@@ -35,14 +35,6 @@ from .request import read_full_http_request
 from .httpadapter import HttpAdapter
 from .dictionary import CaseInsensitiveDict
 
-#: A dictionary mapping hostnames to backend IP and port tuples.
-#: Used to determine routing targets for incoming requests.
-PROXY_PASS = {
-    "192.168.56.103:8080": ('192.168.56.103', 9000),
-    "app1.local": ('192.168.56.103', 9001),
-    "app2.local": ('192.168.56.103', 9002),
-}
-
 # Biến toàn cục để lưu trữ vòng lặp round-robin cho các host
 round_robin_iterators = {}
 rr_lock = threading.Lock()
@@ -61,7 +53,7 @@ def forward_request(host, port, request):
     """
 
     backend = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    print(f"[DEBUG]: {request}")
+    #print(f"[DEBUG]: {request}")
     try:
         backend.connect((host, port))
         backend.sendall(request.encode())
@@ -111,10 +103,8 @@ def resolve_routing_policy(hostname, routes):
     if isinstance(proxy_map, list):
         if len(proxy_map) == 0:
             print(f"[Proxy] Empty resolved routing for hostname {hostname}")
-            # --- BẮT ĐẦU HOÀN THÀNH TODO ---
             proxy_host = '127.0.0.1'
             proxy_port = '9000'
-            # --- KẾT THÚC HOÀN THÀNH TODO ---
             
         elif len(proxy_map) == 1:
             # Chỉ có 1 server, dùng server đó
@@ -122,7 +112,6 @@ def resolve_routing_policy(hostname, routes):
             
         else:
             # Có nhiều server, áp dụng policy
-            # --- BẮT ĐẦU HOÀN THÀNH TODO (round-robin) ---
             if policy == 'round-robin':
                 with rr_lock:
                     if hostname not in round_robin_iterators:
@@ -135,7 +124,6 @@ def resolve_routing_policy(hostname, routes):
             else:
                 # Policy khác (hoặc mặc định), cứ lấy cái đầu tiên
                 proxy_host, proxy_port = proxy_map[0].split(":", 1)
-            # --- KẾT THÚC HOÀN THÀNH TODO ---
             
     else:
         # Trường hợp proxy_map là 1 string đơn
@@ -206,6 +194,23 @@ def handle_client(ip, port, conn, addr, routes):
 
     if resolved_host:
         print(f"[Proxy] Host {hostname} is forwarded to {resolved_host}:{resolved_port}")
+        parts = request.split('\r\n\r\n', 1)
+        header_section = parts[0]
+        body_section = parts[1] if len(parts) > 1 else ""
+        
+        # Check if X-Forwarded-For already exists
+        lines = header_section.split('\r\n')
+        has_xff = any(line.lower().startswith('x-forwarded-for:') for line in lines)
+        
+        if not has_xff:
+            # Add X-Forwarded-For after the first line (request line)
+            request_line = lines[0]
+            other_headers = lines[1:]
+            
+            # Insert X-Forwarded-For as the first header
+            new_headers = [request_line, f"X-Forwarded-For: {addr[0]}"] + other_headers
+            request = '\r\n'.join(new_headers) + '\r\n\r\n' + body_section
+            #print(f"[Proxy] Added X-Forwarded-For: {addr[0]}")
 
         # Modify the request to include extra headers if any
         if extra_headers:
@@ -229,7 +234,8 @@ def handle_client(ip, port, conn, addr, routes):
                         break
                 if not added:
                     new_lines.append(line)
-
+            
+            extra_headers['X-Forwarded-For'] = addr[0]
             # Add any extra headers not already present
             for key, value in extra_headers.items():
                 if not any(line.lower().startswith(key.lower() + ':') for line in new_lines):
@@ -240,8 +246,8 @@ def handle_client(ip, port, conn, addr, routes):
                         new_lines.append(f"{key}: {value}")
 
             request = "\r\n".join(new_lines) + "\r\n\r\n"
+           
 
-        
         response = forward_request(resolved_host, resolved_port, request)        
     else:
         response = (

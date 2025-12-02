@@ -26,17 +26,16 @@ and can be configured via command-line arguments.
 
 import json
 import argparse
-import threading # <-- 1. Import threading
+import threading 
 from daemon.weaprous import WeApRous
 from daemon.dictionary import CaseInsensitiveDict
 
-PORT = 8000  # Default port
+PORT = 8000  
 
 app = WeApRous()
 
-# ----- Cơ sở dữ liệu "in-memory" (giống file PDF) -----
 
-db_lock = threading.Lock() # <-- 2. Tạo một Lock toàn cục
+db_lock = threading.Lock() 
 
 db = {
     "peers": {
@@ -57,17 +56,14 @@ def parse_headers(headers):
     header_dict = CaseInsensitiveDict()
     
     if isinstance(headers, str):
-        # Original string mode: split lines
         for line in headers.splitlines():
             if ':' in line:
                 key, value = line.split(':', 1)
                 header_dict[key.strip()] = value.strip()
     elif isinstance(headers, (dict, CaseInsensitiveDict)):
-        # Dict mode: copy directly
         for key, value in headers.items():
             header_dict[key] = value
     else:
-        # Fallback: empty if invalid type
         print(f"[Warning] Invalid headers type: {type(headers)}")
     
     return header_dict
@@ -96,7 +92,6 @@ def login(headers="guest", body="anonymous"):
     """
     print ("[SampleApp] Logging in {} to {}".format(headers, body))
 
-    # Parse form data from body
     form = {}
     for part in body.split('&'):
         if '=' in part:
@@ -107,7 +102,6 @@ def login(headers="guest", body="anonymous"):
         body_json = json.dumps({"status": "success"})
         return f"HTTP/1.1 200 OK\r\nSet-Cookie: auth=true\r\nContent-Type: application/json\r\nContent-Length: {len(body_json)}\r\n\r\n{body_json}"
     else:
-        print(f"NGU VCL {form.get('username') == 'admin'}, {form.get('password')}")
         return "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n"
 
 # API để unregister peer
@@ -135,24 +129,34 @@ def unregister(headers="guest", body="anonymous"):
 def submit_info(headers="guest", body="anonymous"):
     if not is_authenticated(headers):
         return "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n"
-    with db_lock: # <-- 3. Khóa tài nguyên
+    
+    with db_lock:
         try:
             body_data = json.loads(body)
             username = body_data['username']
             p2p_port = int(body_data['p2p_port'])
             
-            # Lấy IP của client từ headers (X-Forwarded-For nếu có, hoặc fallback)
             header_dict = parse_headers(headers)
-            ip = header_dict.get('X-Forwarded-For', header_dict.get('Host', 'unknown').split(':')[0])
+            
+            ip = header_dict.get('x-forwarded-for', None) 
+            
+            if not ip:
+                host_header = header_dict.get('host', '')
+                if ':' in host_header:
+                    ip = host_header.split(':')[0]
+                else:
+                    ip = host_header or 'unknown'
+            
             
             if username in db["peers"]:
-                 return {"status": "error", "message": "Username đã tồn tại"}
+                return {"status": "error", "message": "Username đã tồn tại"}
 
             db["peers"][username] = {"ip": ip, "port": p2p_port, "channels": []}
             print(f"[ChatServer] Đăng ký Peer: {username} tại {ip}:{p2p_port}")
             
             return {"status": "success", "message": f"Chào mừng {username}"}
         except Exception as e:
+            print(f"[ChatServer] Error in submit_info: {e}")
             return {"status": "error", "message": str(e)}
 
 # API 2: Lấy danh sách kênh

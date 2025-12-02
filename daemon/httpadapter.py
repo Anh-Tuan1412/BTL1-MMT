@@ -20,7 +20,7 @@ raw URL paths and RESTful route definitions, and integrates with
 Request and Response objects to handle client-server communication.
 """
 
-import json # Cần import json
+import json 
 from .request import Request, read_full_http_request
 from .response import Response
 from .dictionary import CaseInsensitiveDict
@@ -74,7 +74,6 @@ class HttpAdapter:
         req = self.request
         resp = self.response
 
-        # --- SỬA LỖI ĐỌC BUFFER TCP ---
         try:
             msg = read_full_http_request(conn=conn)
             if not msg:
@@ -84,13 +83,30 @@ class HttpAdapter:
         except Exception as e:
             print(f"Error receiving full request data from {addr}: {e}")
             return
-        # --- KẾT THÚC SỬA LỖI ĐỌC BUFFER ---
+      
+        has_xff = False
+        for line in msg.split('\r\n'):
+            if line.lower().startswith('x-forwarded-for:'):
+                has_xff = True
+                break
+    
+        if not has_xff:
+            parts = msg.split('\r\n\r\n', 1)
+            header_section = parts[0]
+            body_section = parts[1] if len(parts) > 1 else ""
+        
+            lines = header_section.split('\r\n')
+            request_line = lines[0]
+            other_headers = lines[1:]
+        
+            new_headers = [request_line, f"X-Forwarded-For: {addr[0]}"] + other_headers
+            msg = '\r\n'.join(new_headers) + '\r\n\r\n' + body_section
+            #print(f"[HttpAdapter] Added X-Forwarded-For: {addr[0]}")
 
+        print(f"[HTTPAdapter] DEBUG: {msg}")
         req.prepare(msg, routes)
+        response = None 
 
-        response = None # Khởi tạo response
-
-        # Handle request hook (Task 2 - WeApRous)
         if req.hook:
             print(f"[HttpAdapter] hook in route-path METHOD {req.hook._route_path} PATH {req.hook._route_methods}")
             
@@ -124,7 +140,7 @@ class HttpAdapter:
                         
                     resp.headers['Content-Type'] = 'application/json' 
                     resp._content = json_body
-                        
+                    
                     resp._header = resp.build_response_header(req)
                     response = resp._header + resp._content
                     
@@ -138,11 +154,9 @@ class HttpAdapter:
                     resp._header = resp.build_response_header(req)
                     response = resp._header + resp._content
 
-        # --- BẮT ĐẦU LOGIC TASK 1A & 1B (Theo PDF) ---
+        
         # Chỉ xử lý nếu không có hook (tức là static request)
-
         if response is None:
-            # Task 1A: Xử lý POST /login
             if req.method == 'POST' and req.path == '/login':
                 form_data = {}
                 if req.body:
@@ -154,17 +168,17 @@ class HttpAdapter:
                 
                 username = form_data.get('username')
                 password = form_data.get('password')
-                print(f"[DEBUG]: {username}, {password}")
+                #print(f"[DEBUG]: {username}, {password}")
                 if username == 'admin' and password == 'password':
                     print("[HttpAdapter] Login successful for admin")
                     req.path = '/index.html' 
                     resp.set_cookie = 'auth=true; Path=/' 
-                    response = resp.build_response(req) # Xây dựng response ngay
+                    response = resp.build_response(req) 
                 else:
                     print(f"[HttpAdapter] Login failed for user: {username}")
                     response = resp.build_unauthorized()
             
-            # Task 1B: Xử lý GET (kiểm tra cookie)
+
             elif req.method == 'GET':
                 if req.path == '/login.html':
                     print(f"[HttpAdapter] Serving public asset: {req.path}")
@@ -178,7 +192,7 @@ class HttpAdapter:
                         print(f"[HttpAdapter] Auth cookie invalid/missing, serving 401 for: {req.path}")
                         response = resp.build_unauthorized()
             
-            # --- KẾT THÚC LOGIC TASK 1 ---
+           
 
         if response is None:
             response = resp.build_response(req)
