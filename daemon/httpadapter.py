@@ -103,7 +103,7 @@ class HttpAdapter:
             msg = '\r\n'.join(new_headers) + '\r\n\r\n' + body_section
             #print(f"[HttpAdapter] Added X-Forwarded-For: {addr[0]}")
 
-        print(f"[HTTPAdapter] DEBUG: {msg}")
+        #print(f"[HTTPAdapter] DEBUG: {msg}")
         req.prepare(msg, routes)
         response = None 
 
